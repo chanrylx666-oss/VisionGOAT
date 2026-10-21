@@ -1,3 +1,0 @@
-C:\Qt\Tools\CMake_64\bin\cmake.exe -E rm -f CMakeFiles\JPVision.Studio.dir/objects.a
-C:\Qt\Tools\mingw1310_64\bin\ar.exe qc CMakeFiles\JPVision.Studio.dir/objects.a @CMakeFiles\JPVision.Studio.dir\objects1.rsp
-C:\Qt\Tools\mingw1310_64\bin\g++.exe -g -mwindows -Wl,--whole-archive CMakeFiles\JPVision.Studio.dir/objects.a -Wl,--no-whole-archive -o D:\open500\JP-Vision\artifacts\studio\Debug\JP-Vision.exe -Wl,--out-implib,libJP-Vision.dll.a -Wl,--major-image-version,0,--minor-image-version,0 @CMakeFiles\JPVision.Studio.dir\linkLibs.rsp

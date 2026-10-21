@@ -25,7 +25,7 @@
 
 在搜索带的切向位置／法向位移平面内做局部去趋势的稳健筛选，避免直接比较图像 Y 坐标而误伤倾斜或旋转边缘。缺段使用形状保持的分段三次 Hermite 插值；这种插值的斜率构造参考 [SciPy 的 PCHIP 算法说明](https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.PchipInterpolator.html)，C++ 实现不依赖 Python 或 SciPy。
 
-可选平滑使用距离加权的局部线性回归，并通过 Huber 残差降权降低异常点影响。每个窗口分别估计中心位置，连续窗口形成柔顺曲线；只有左右均有实测支持的点才做平滑。这样可抑制交替锯齿，而不仅是把中值窗口的抖动相位翻转。
+可选平滑使用距离加权的局部线性回归，并通过 Huber 残差降权降低异常点影响。每个窗口分别估计中心位置，连续窗口形成柔顺曲线；只有左右均有实测支持的点才做平滑，用于降低相邻点的锯齿跳变。
 
 只补两侧锚点之间且长度未超限的内部测站。端点外侧不外推，图像／有效掩膜以外不补，整张图无边缘时不生成轮廓。全部采样和输出继续遵守测站及工作量上限。
 
@@ -39,7 +39,9 @@
 
 ## SDK 数据
 
-点集输出的 `points` 是当前模式的最终点，`rawPoints` 保留原始检测点。点上的 `origin` 区分 `measured`／`interpolated`，`adjusted` 表示有实测支持但坐标经过平滑，`rawX/rawY` 保留原始坐标。补全点没有实测梯度，`gradient` 为 0。
+修复模式输出的 `points` 是最终点，`rawPoints` 保留原始检测点。点上的 `origin` 区分 `measured`／`interpolated`，`adjusted` 表示有实测支持但坐标经过平滑，`rawX/rawY` 保留原始坐标。补全点没有实测梯度，`gradient` 为 0。
+
+原始模式的 `points` 本身就是原始点，因此 JSON 省略重复的 `rawPoints` 和逐点默认来源字段，避免大点集重复占用容量。SDK 的 `RawPoints` 直接复用 `Points` 同一列表；缺少来源字段时解释为未平滑实测点，原始坐标就是 X/Y。
 
 点集增加 `rawCount`、`measuredCount`、`rejectedCount`、`interpolatedCount` 和 `observedCoverage`。`count/coverage` 描述输出点集，可靠性仍取决于实测覆盖；原图与圆环展开图继续使用各自的坐标平面。
 

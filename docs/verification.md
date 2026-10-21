@@ -1,5 +1,19 @@
 # JP-Vision 验证记录
 
+## 当前源码：边缘曲线修复与补全（2026-10-21）
+
+“边缘点集”新增原始／过滤／重建模式、邻域窗口、法向跳点容差、可选平滑和最大补全跨度。在搜索带局部坐标中做两轮去趋势中值剔除，平滑使用三角距离加权局部线性回归与两轮 Huber 降权；缺段用受跨度、搜索高度和有效掩膜约束的 PCHIP 插值，仅补内部测站。修复结果保留原始点、原始坐标和来源，补全不提高实测有效比例；无图像、无边缘或无可靠两侧时不生成虚假有效测量。默认“点集到线距离”只测实测合格原始坐标，明确切换后才使用修正／补全点集。
+
+新增 **25** 项回归，覆盖真实像素尖峰、交替抖动、旋转／垂直边、短缺段、长缺段／端点不补、原始坐标追溯、实测覆盖、默认／显式测距、空帧恢复、裁剪原点、凹 ROI 掩膜与展开坐标。旧 DLL 三组旋转缺段用例先失败，记录 `artifacts/tests/edge-reconstruction-red.json` 所指的隔离目录。独立审查发现中值平滑只反转交替抖动相位，新增真实像素 RMS 回归确认失败，再由局部稳健回归修复；证据为该目录 `edge-jitter-red.trx`。
+
+初次受影响测试 **92/93** 通过，最大 32768 px 宽度的原始模式因重复原始点和来源数据超出公共结果预算，旧失败保留 `edge-reconstruction-focused-before-compact.trx`。修复为原始 JSON 直接使用 `points`，省略可推导的逐点默认字段和重复 `rawPoints`；SDK 的 `RawPoints` 复用同一列表，不提高预算、不截断点集。修复后新功能及 10918／32768 px 大点集 **27/27** 通过，记录 `edge-reconstruction-compact.trx`。
+
+最终 VS Debug/x64 源码构建通过，无编译警告／错误。核对发现测试目录曾保留较早重建的 DLL，已同步并使用与 VS 启动目录相同的 **34293874…** 运行库完成完整托管 **851/851**、CTest **3/3**；记录 `edge-reconstruction-final.trx`、`edge-reconstruction-test-sync.log`、`edge-reconstruction-ctest.log`。原生、SDK、Studio 和测试目录副本 SHA256 一致，见 `edge-reconstruction-native-hashes.json`。先前完整运行记录保留 `edge-reconstruction-final-before-sync.trx`，最终结果以同步后的记录为准。
+
+实际 WPF **10/10** 场景通过：edge-reconstruction、edge-points、edge-points-ranges、roi-bounds、annular-unwrap、parameter-subscriptions、line-density、blob-analysis、image-process-chain、camera-main-live，汇总 `artifacts/tests/edge-reconstruction-gui.json`。新场景验证实际启用按钮、参数显隐／修改、来源和原始坐标表、默认实测测距切换到补全集、保存重载以及干净图像像素，截图 `edge-reconstruction-gui/edge-reconstruction.png` 已视查。使用合成图与模拟相机，没有据此声称已还原用户截图中的真实缺陷轮廓。
+
+旧配方默认保持原始点集。窗口内大多数点均选错时，仅凭局部数据不能判定真实轮廓；需调整选边、ROI 或窗口。继续只交付源码和普通 Debug 输出，不制作独立发布包。用法、坐标来源和限制见 [边缘曲线修复](edge-reconstruction.md)。
+
 ## 当前源码：性能与主窗口实时画面（2026-10-21）
 
 编辑器新增单配方 `EditorExecutionCache`，未修改配方重复执行复用计划／会话；参数、ROI、模板或连接变化按完整 JSON 失效重建。图像、输入、变量及预览请求逐次传入，不缓存结果；配方准备和执行接受在后台完成。主图与相机管理窗共享从相机自有像素直接准备的冻结位图，100 ms 拉取最新帧，保持同尺寸缩放／拖动。执行、教学和 ROI 固定输入，显式选择“实时画面”恢复；停流／断开／故障清空实时图。去除执行路径中的重复整图显示，并增加准备／执行／显示／总耗时日志。

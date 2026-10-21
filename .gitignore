@@ -12,4 +12,7 @@ third_party/nodeeditor/
 *.pfx
 *.secret
 CMakeUserPresets.json
+/extra/
+/build/
+/.qtcreator/
 

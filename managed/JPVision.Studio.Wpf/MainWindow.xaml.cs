@@ -98,12 +98,7 @@ public partial class MainWindow : Window
         string? recipe = Argument("--recipe");
         if (recipe is not null)
             LoadRecipe(recipe);
-        else
-        {
-            string sample = Path.Combine(AppContext.BaseDirectory, "samples/recipes/circles.vrecipe");
-            if (Directory.Exists(sample))
-                LoadRecipe(sample);
-        }
+        UpdateTitle();
         string? image = Argument("--image");
         if (image is null)
             image = Path.Combine(AppContext.BaseDirectory, "samples/images/three-parts.png");
