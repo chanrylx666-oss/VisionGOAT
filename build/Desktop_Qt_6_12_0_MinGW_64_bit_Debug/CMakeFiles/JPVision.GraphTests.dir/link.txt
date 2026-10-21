@@ -1,0 +1,3 @@
+C:\Qt\Tools\CMake_64\bin\cmake.exe -E rm -f CMakeFiles\JPVision.GraphTests.dir/objects.a
+C:\Qt\Tools\mingw1310_64\bin\ar.exe qc CMakeFiles\JPVision.GraphTests.dir/objects.a @CMakeFiles\JPVision.GraphTests.dir\objects1.rsp
+C:\Qt\Tools\mingw1310_64\bin\g++.exe -g -Wl,--whole-archive CMakeFiles\JPVision.GraphTests.dir/objects.a -Wl,--no-whole-archive -o D:\open500\JP-Vision\artifacts\studio\Debug\JPVision.GraphTests.exe -Wl,--out-implib,libJPVision.GraphTests.dll.a -Wl,--major-image-version,0,--minor-image-version,0 @CMakeFiles\JPVision.GraphTests.dir\linkLibs.rsp

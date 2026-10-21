@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations"><ProjectConfiguration Include="Debug|x64"><Configuration>Debug</Configuration><Platform>x64</Platform></ProjectConfiguration><ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration></ItemGroup>
+  <PropertyGroup Label="Globals"><ProjectGuid>{84B9C482-5F20-4B69-8572-4DB751D5C053}</ProjectGuid><Keyword>MakeFileProj</Keyword><ProjectName>JPVision.NativeRuntime</ProjectName><WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion></PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props"/>
+  <PropertyGroup Label="Configuration"><ConfigurationType>Makefile</ConfigurationType><PlatformToolset>v145</PlatformToolset></PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props"/>
+  <PropertyGroup>
+    <NMakeBuildCommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(ProjectDir)..\scripts\build-native.ps1&quot; -Configuration $(Configuration)</NMakeBuildCommandLine>
+    <NMakeReBuildCommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(ProjectDir)..\scripts\build-native.ps1&quot; -Configuration $(Configuration) -Rebuild</NMakeReBuildCommandLine>
+    <NMakeCleanCommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(ProjectDir)..\scripts\build-native.ps1&quot; -Configuration $(Configuration) -Clean</NMakeCleanCommandLine>
+    <NMakeOutput>$(ProjectDir)..\artifacts\native\$(Configuration)\JPVision.Runtime.dll</NMakeOutput>
+    <NMakeIncludeSearchPath>$(ProjectDir)capi;$(ProjectDir)core;$(ProjectDir)core\components;$(ProjectDir)camera;$(MSBuildProgramFiles32)\MVS\Development\Includes;$(ProjectDir)..\third_party;$(ProjectDir)..\config;$(ProjectDir)..\..\include;$(NMakeIncludeSearchPath)</NMakeIncludeSearchPath>
+    <NMakePreprocessorDefinitions>NOMINMAX;WIN32_LEAN_AND_MEAN;_CRT_SECURE_NO_WARNINGS;$(NMakePreprocessorDefinitions)</NMakePreprocessorDefinitions>
+    <AdditionalOptions>/std:c++20 /utf-8</AdditionalOptions><OutDir>$(ProjectDir)..\artifacts\native\$(Configuration)\</OutDir><IntDir>$(ProjectDir)..\artifacts\build\vs-wrapper\$(Configuration)\</IntDir>
+  </PropertyGroup>
+  <ItemGroup><ClCompile Include="capi\*.cpp"/><ClCompile Include="core\*.cpp"/><ClCompile Include="core\components\*.cpp"/><ClCompile Include="licensing\*.cpp"/><ClCompile Include="camera\*.cpp"/><ClInclude Include="capi\*.h"/><ClInclude Include="core\*.h"/><ClInclude Include="core\components\*.h"/><ClInclude Include="licensing\*.h"/><ClInclude Include="camera\*.h"/><None Include="..\CMakeLists.txt"/><None Include="..\CMakePresets.json"/></ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets"/>
+</Project>

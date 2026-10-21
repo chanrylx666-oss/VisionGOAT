@@ -1,0 +1,183 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"childIndexes" : 
+					[
+						1
+					],
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-.-Debug-d0094a50bb2071803777.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.16"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5
+					]
+				},
+				{
+					"build" : "third_party/nodeeditor",
+					"childIndexes" : 
+					[
+						2
+					],
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-third_party.nodeeditor-Debug-ac7de8852f76d67a9259.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.16"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 1,
+					"source" : "third_party/nodeeditor",
+					"targetIndexes" : 
+					[
+						6,
+						7,
+						8
+					]
+				},
+				{
+					"build" : "third_party/nodeeditor/external",
+					"jsonFile" : "directory-third_party.nodeeditor.external-Debug-dbc32223da6a6e8b1bc8.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.11"
+					},
+					"parentIndex" : 1,
+					"projectIndex" : 1,
+					"source" : "third_party/nodeeditor/external"
+				}
+			],
+			"name" : "Debug",
+			"projects" : 
+			[
+				{
+					"childIndexes" : 
+					[
+						1
+					],
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "JPVision",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5
+					]
+				},
+				{
+					"directoryIndexes" : 
+					[
+						1,
+						2
+					],
+					"name" : "QtNodesLibrary",
+					"parentIndex" : 0,
+					"targetIndexes" : 
+					[
+						6,
+						7,
+						8
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "JPVision.GraphTests::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-JPVision.GraphTests-Debug-5014edc7fbb2b70d4a93.json",
+					"name" : "JPVision.GraphTests",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "JPVision.GraphTests_autogen::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-JPVision.GraphTests_autogen-Debug-c0bdddcfba5ab39853bd.json",
+					"name" : "JPVision.GraphTests_autogen",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "JPVision.GraphTests_autogen_timestamp_deps::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-JPVision.GraphTests_autogen_timestamp_deps-Debug-7e552ff5a2bc1ac3b981.json",
+					"name" : "JPVision.GraphTests_autogen_timestamp_deps",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "JPVision.Studio::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-JPVision.Studio-Debug-9addeeaaa77cfd41ea2d.json",
+					"name" : "JPVision.Studio",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "JPVision.Studio_autogen::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-JPVision.Studio_autogen-Debug-9528e94c8dc86b72afd6.json",
+					"name" : "JPVision.Studio_autogen",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "JPVision.Studio_autogen_timestamp_deps::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-JPVision.Studio_autogen_timestamp_deps-Debug-73459f4e7cec799c49d3.json",
+					"name" : "JPVision.Studio_autogen_timestamp_deps",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "QtNodes::@d417e4d30df06944296e",
+					"jsonFile" : "target-QtNodes-Debug-50d1353a47037aff0e32.json",
+					"name" : "QtNodes",
+					"projectIndex" : 1
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "QtNodes_autogen::@d417e4d30df06944296e",
+					"jsonFile" : "target-QtNodes_autogen-Debug-b66634e6d49b8918caac.json",
+					"name" : "QtNodes_autogen",
+					"projectIndex" : 1
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "QtNodes_autogen_timestamp_deps::@d417e4d30df06944296e",
+					"jsonFile" : "target-QtNodes_autogen_timestamp_deps-Debug-e25ff773300e12eac3e6.json",
+					"name" : "QtNodes_autogen_timestamp_deps",
+					"projectIndex" : 1
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "D:/open500/JP-Vision/build/Desktop_Qt_6_12_0_MinGW_64_bit_Debug",
+		"source" : "D:/open500/JP-Vision"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 7
+	}
+}

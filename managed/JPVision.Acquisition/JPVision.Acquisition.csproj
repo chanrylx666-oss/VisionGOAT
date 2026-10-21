@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><PlatformTarget>x64</PlatformTarget><AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DisableFastUpToDateCheck>true</DisableFastUpToDateCheck>
+    <JpvCameraNativeDirectory Condition="'$(JpvCameraNativeDirectory)' == ''">$(MSBuildThisFileDirectory)../../artifacts/native/$(Configuration)</JpvCameraNativeDirectory>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../JPVision.Sdk/JPVision.Sdk.csproj" />
+  </ItemGroup>
+  <!-- The native project can finish after project evaluation. Collect built assets
+       at execution time so the first build and transitive WPF copies include them. -->
+  <Target Name="JpvCollectCameraNativeArtifacts" BeforeTargets="GetCopyToOutputDirectoryItems">
+    <ItemGroup>
+      <ContentWithTargetPath Include="$(JpvCameraNativeDirectory)/JPVision.Camera.Mvs.dll" Condition="Exists('$(JpvCameraNativeDirectory)/JPVision.Camera.Mvs.dll')" TargetPath="JPVision.Camera.Mvs.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+      <ContentWithTargetPath Include="$(JpvCameraNativeDirectory)/JPVision.Camera.Mvs.pdb" Condition="Exists('$(JpvCameraNativeDirectory)/JPVision.Camera.Mvs.pdb')" TargetPath="JPVision.Camera.Mvs.pdb" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+</Project>

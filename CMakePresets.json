@@ -1,0 +1,38 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "runtime", "displayName": "JP-Vision Runtime (MSVC)",
+      "generator": "Visual Studio 18 2026", "architecture": "x64",
+      "binaryDir": "${sourceDir}/artifacts/build/runtime",
+      "cacheVariables": { "JPV_BUILD_RUNTIME": "ON", "JPV_BUILD_STUDIO": "OFF" }
+    },
+    {
+      "name": "studio-release", "displayName": "JP-Vision Studio (Qt MinGW Release)",
+      "generator": "Ninja", "binaryDir": "${sourceDir}/artifacts/build/studio-release",
+      "cacheVariables": {
+        "JPV_BUILD_RUNTIME": "OFF", "JPV_BUILD_STUDIO": "ON", "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_COMPILER": "$env{JPV_MINGW_ROOT}/bin/g++.exe",
+        "CMAKE_MAKE_PROGRAM": "$env{JPV_NINJA}",
+        "CMAKE_PREFIX_PATH": "$env{JPV_QT_ROOT}"
+      }
+    },
+    {
+      "name": "studio-debug", "inherits": "studio-release",
+      "displayName": "JP-Vision Studio (Qt MinGW Debug)",
+      "binaryDir": "${sourceDir}/artifacts/build/studio-debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "runtime-release", "configurePreset": "runtime", "configuration": "Release" },
+    { "name": "runtime-debug", "configurePreset": "runtime", "configuration": "Debug" },
+    { "name": "studio-release", "configurePreset": "studio-release" },
+    { "name": "studio-debug", "configurePreset": "studio-debug" }
+  ],
+  "testPresets": [
+    { "name": "runtime-release", "configurePreset": "runtime", "configuration": "Release", "output": { "outputOnFailure": true } },
+    { "name": "runtime-debug", "configurePreset": "runtime", "configuration": "Debug", "output": { "outputOnFailure": true } }
+  ]
+}
+

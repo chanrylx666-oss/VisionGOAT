@@ -1,0 +1,15 @@
+artifacts/
+third_party/nodeeditor/
+**/bin/
+**/obj/
+.vs/
+*.user
+*.vlic
+*.private
+*.pem
+*.vreq
+*.key
+*.pfx
+*.secret
+CMakeUserPresets.json
+

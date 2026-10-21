@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>JP-Vision</AssemblyName><RootNamespace>JPVision.Studio</RootNamespace><Version>0.7.2</Version><ApplicationIcon>../../assets/jpVision.ico</ApplicationIcon>
+    <EnableUnmanagedDebugging>true</EnableUnmanagedDebugging>
+    <DisableFastUpToDateCheck>true</DisableFastUpToDateCheck>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../JPVision.Editor.Core/JPVision.Editor.Core.csproj"/>
+    <ProjectReference Include="../JPVision.Acquisition/JPVision.Acquisition.csproj"/>
+    <Resource Include="../../assets/jpVision.png" Link="Assets/jpVision.png"/><Resource Include="../../assets/jpVision.ico" Link="Assets/jpVision.ico"/>
+    <Content Include="../../samples/recipes/**/*" Link="samples/recipes/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest"/>
+    <Content Include="../../samples/images/*" Link="samples/images/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest"/>
+    <None Include="../../artifacts/native/$(Configuration)/JPVision.Runtime.pdb" Link="JPVision.Runtime.pdb" CopyToOutputDirectory="PreserveNewest" Condition="Exists('../../artifacts/native/$(Configuration)/JPVision.Runtime.pdb')"/>
+  </ItemGroup>
+</Project>

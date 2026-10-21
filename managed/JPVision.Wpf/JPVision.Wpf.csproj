@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net8.0-windows</TargetFramework><UseWPF>true</UseWPF><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><PlatformTarget>x64</PlatformTarget><PackageId>JPVision.Wpf</PackageId><Version>0.7.2</Version><Authors>JP</Authors><Description>JP-Vision WPF image and vector overlay controls.</Description></PropertyGroup>
+  <PropertyGroup><PackageReadmeFile>README.md</PackageReadmeFile></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../JPVision.Sdk/JPVision.Sdk.csproj" /><None Include="../../docs/sdk-integration.md" Pack="true" PackagePath="README.md" /></ItemGroup>
+</Project>

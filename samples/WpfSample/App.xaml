@@ -1,0 +1,55 @@
+<Application x:Class="JPVision.WpfSample.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" StartupUri="MainWindow.xaml">
+  <Application.Resources>
+    <SolidColorBrush x:Key="JpvBackground" Color="#09090B"/>
+    <SolidColorBrush x:Key="JpvSurface" Color="#18181B"/>
+    <SolidColorBrush x:Key="JpvInput" Color="#101012"/>
+    <SolidColorBrush x:Key="JpvText" Color="#F2F2F4"/>
+    <SolidColorBrush x:Key="JpvMuted" Color="#A6A6AC"/>
+    <SolidColorBrush x:Key="JpvBorder" Color="#57575F"/>
+    <SolidColorBrush x:Key="JpvAccent" Color="#FF3038"/>
+    <Style TargetType="Button">
+      <Setter Property="Padding" Value="12,8"/><Setter Property="Margin" Value="0,0,8,0"/>
+      <Setter Property="Background" Value="{StaticResource JpvSurface}"/><Setter Property="Foreground" Value="{StaticResource JpvText}"/>
+      <Setter Property="BorderBrush" Value="{StaticResource JpvBorder}"/><Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+        <Border x:Name="Frame" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4" Padding="{TemplateBinding Padding}">
+          <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+        </Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Frame" Property="BorderBrush" Value="{StaticResource JpvAccent}"/><Setter TargetName="Frame" Property="Background" Value="#39171D"/></Trigger>
+          <Trigger Property="IsPressed" Value="True"><Setter TargetName="Frame" Property="Background" Value="#781A23"/></Trigger>
+          <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Frame" Property="BorderBrush" Value="{StaticResource JpvAccent}"/></Trigger>
+          <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Frame" Property="Opacity" Value="0.45"/></Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style TargetType="TextBox">
+      <Setter Property="Padding" Value="8,6"/><Setter Property="Background" Value="{StaticResource JpvInput}"/>
+      <Setter Property="Foreground" Value="{StaticResource JpvText}"/><Setter Property="BorderBrush" Value="{StaticResource JpvBorder}"/>
+      <Setter Property="SelectionBrush" Value="#8A202A"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TextBox">
+        <Border x:Name="Frame" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="3" Padding="{TemplateBinding Padding}"><ScrollViewer x:Name="PART_ContentHost"/></Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Frame" Property="BorderBrush" Value="{StaticResource JpvAccent}"/></Trigger>
+          <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Frame" Property="Opacity" Value="0.5"/></Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style TargetType="CheckBox">
+      <Setter Property="Foreground" Value="{StaticResource JpvText}"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="CheckBox">
+        <StackPanel Orientation="Horizontal">
+          <Border x:Name="Mark" Width="17" Height="17" Background="{StaticResource JpvInput}" BorderBrush="{StaticResource JpvBorder}" BorderThickness="1" CornerRadius="2" VerticalAlignment="Center">
+            <Path x:Name="Tick" Data="M 3,8 L 7,12 L 13,4" Stroke="White" StrokeThickness="2" Visibility="Collapsed"/>
+          </Border>
+          <ContentPresenter Margin="8,0,0,0" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+        </StackPanel>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsChecked" Value="True"><Setter TargetName="Mark" Property="Background" Value="#CB2730"/><Setter TargetName="Tick" Property="Visibility" Value="Visible"/></Trigger>
+          <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Mark" Property="BorderBrush" Value="{StaticResource JpvAccent}"/></Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource JpvText}"/></Style>
+  </Application.Resources>
+</Application>

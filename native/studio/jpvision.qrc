@@ -1,0 +1,6 @@
+<RCC>
+  <qresource prefix="/JPVision">
+    <file alias="jpVision.ico">../../assets/jpVision.ico</file>
+    <file alias="checkmark.png">../../assets/checkmark.png</file>
+  </qresource>
+</RCC>
