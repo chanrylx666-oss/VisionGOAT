@@ -584,8 +584,30 @@ public partial class MainWindow
         {
             Parameters.Children.Add(Note(p.Key == "ExpectedCount" ? "预期目标数量（ExpectedCount）" : p.Key));
             string type = p.Value!["type"]!.GetValue<string>();
-            var edit = new TextBox { Text = runInputs.GetValueOrDefault(p.Key)?.ToString() ?? "", Margin = new Thickness(0, 0, 0, 8) };
-            edit.LostKeyboardFocus += (_, _) => Safe(() => { object? value = type switch { "Int" => long.Parse(edit.Text, CultureInfo.InvariantCulture), "Double" => double.Parse(edit.Text, CultureInfo.InvariantCulture), "Bool" => bool.Parse(edit.Text), _ => edit.Text }; runInputs[p.Key] = value; ClearResult(); });
+            string display = runInputs.GetValueOrDefault(p.Key) is IFormattable formatted
+                ? formatted.ToString(null, CultureInfo.InvariantCulture) ?? ""
+                : runInputs.GetValueOrDefault(p.Key)?.ToString() ?? "";
+            object? Parse(string text) => type switch
+            {
+                "Int" => long.Parse(text, CultureInfo.InvariantCulture),
+                "Double" => double.Parse(text, CultureInfo.InvariantCulture),
+                "Bool" => bool.Parse(text),
+                _ => text
+            };
+            var edit = new TextBox { Text = display, Tag = "run-input:" + p.Key, Margin = new Thickness(0, 0, 0, 8) };
+            edit.LostKeyboardFocus += (_, _) =>
+            {
+                if (buildingInspector || edit.Text == display) return;
+                Safe(() =>
+                {
+                    object? value = Parse(edit.Text);
+                    object? previous = display.Length == 0 && type != "String" ? null : Parse(display);
+                    if (Equals(value, previous)) { edit.Text = display; return; }
+                    runInputs[p.Key] = value;
+                    display = edit.Text;
+                    ClearResult();
+                });
+            };
             Parameters.Children.Add(edit);
         }
     }

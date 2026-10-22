@@ -29,6 +29,7 @@ public partial class MainWindow : Window
     private CancellationTokenSource? cancellation;
     private bool busy, licensed, buildingInspector, retainInput, closePending, allowClose;
     private string? inputNode, recipeDirectory;
+    private string? observedFlowDefinition;
     private string imagePath = "";
     private NodeSpec? chosenType;
     private readonly Dictionary<string, object?> runInputs = new();
@@ -92,6 +93,7 @@ public partial class MainWindow : Window
         }
         engine = new VisionEngine(licenseStore);
         flow = new FlowDocument(new NodeCatalog(VisionEngine.GetNodeCatalog()));
+        observedFlowDefinition = flow.Definition.ToJsonString();
         flow.Changed += FlowChanged;
         Graph.SetDocument(flow);
         BuildToolbox();
@@ -144,6 +146,18 @@ public partial class MainWindow : Window
     }
     private void FlowChanged()
     {
+        // Node positions and teaching outlines live in LayoutJson, not the execution definition.
+        // Moving a card (including a slight movement during a click) cannot invalidate its output.
+        string? definition = flow?.Definition.ToJsonString();
+        bool executionChanged = !string.Equals(observedFlowDefinition, definition, StringComparison.Ordinal);
+        observedFlowDefinition = definition;
+        if (executionChanged) InvalidateFlowExecution();
+        UpdateTitle();
+        BuildInspector();
+        Graph.Refresh();
+    }
+    private void InvalidateFlowExecution()
+    {
         ClearResult(false);
         if (!retainInput)
         {
@@ -154,9 +168,6 @@ public partial class MainWindow : Window
             ImageView.EndEdit();
             ShowSource();
         }
-        UpdateTitle();
-        BuildInspector();
-        Graph.Refresh();
     }
     private void UpdateTitle() => RecipeTitle.Text = (recipeDirectory is null ? "未命名配方" : Path.GetFileName(recipeDirectory)) + (flow?.Dirty == true ? " *" : "");
     private void ClearResult(bool showSource = true)
@@ -292,6 +303,8 @@ public partial class MainWindow : Window
             throw new InvalidOperationException("配方文件超过 16 MiB。");
         string layout = Path.Combine(folder, "layout.json");
         flow.Load(File.ReadAllText(jsonFile), File.Exists(layout) ? File.ReadAllText(layout) : null);
+        // Reopening even an identical definition resets per-run inputs to their recipe defaults.
+        InvalidateFlowExecution();
         recipeDirectory = folder;
         runInputs.Clear();
         foreach (var input in flow.Definition["inputs"]!.AsObject())
@@ -433,6 +446,8 @@ public partial class MainWindow : Window
         flow.Definition["outputs"] = definition["outputs"]!.DeepClone();
         flow.Definition["kind"] = definition["kind"]!.DeepClone();
         flow.Definition["decisionOutput"] = definition["decisionOutput"]!.DeepClone();
+        // Saving materializes the automatic interfaces used by ExecutionRecipe without a Changed event.
+        observedFlowDefinition = flow.Definition.ToJsonString();
         recipeDirectory = target;
         flow.MarkSaved();
         UpdateTitle();

@@ -46,6 +46,14 @@ public partial class MainWindow
         flow!.Reset();
         recipeDirectory = null;
         runInputs.Clear();
+        if (scenario.StartsWith("output-retention-", StringComparison.Ordinal))
+        {
+            await SmokeOutputRetentionAsync(scenario);
+            CaptureWindow(scenario);
+            allowClose = true;
+            Application.Current.Shutdown();
+            return;
+        }
         if (scenario is "camera-source" or "camera-main-live")
             await SmokeCameraSourceAsync(scenario == "camera-main-live");
         else if (scenario == "deep-learning")
