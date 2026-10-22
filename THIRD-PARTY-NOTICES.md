@@ -8,6 +8,7 @@ JP-Vision application code and the developer signing key belong to this project 
 | Qt (legacy Studio only) | 6.12.0 MinGW installed kit | Historical 0.6.x Qt client; not included in the 0.7.0 WPF runtime |
 | QtNodes | tag 3.0.16, commit 7c6341a66a8e46b8988140b9e60d892b6a3560b3 | BSD-3-Clause; unmodified dependency, linked statically into legacy Qt Studio |
 | nlohmann/json | 3.12.0 | MIT; vendored single header and license |
+| ONNX Runtime (optional CPU inference) | Microsoft.ML.OnnxRuntime 1.24.4, official NuGet package | MIT; unmodified native headers in `third_party/onnxruntime`, runtime DLL installed by `scripts/setup-deep-learning.ps1`; bundled third-party notices retained |
 | MinGW / GCC runtime | installed mingw1310_64 toolchain | Legacy runtime DLLs deployed with Qt; GCC Runtime Library Exception and applicable MinGW licenses |
 | .NET / Microsoft VC++ | .NET 10 self-contained Studio; app-local VC145 release CRT | Microsoft respective distribution terms; WPF sample is framework-dependent |
 | xUnit, Test SDK | 2.9.3 / runner 3.1.4 / SDK 17.14.1 | Development tests only; not client components |

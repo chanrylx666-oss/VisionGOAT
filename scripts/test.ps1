@@ -16,7 +16,7 @@ try {
     Invoke-JpvChecked dotnet @('test','managed/JPVision.Tests/JPVision.Tests.csproj','-c',$Configuration,'--logger',"trx;LogFileName=sdk-$Configuration.trx",'--results-directory','artifacts/tests')
     $studio=Join-Path $JpvRoot "managed/JPVision.Studio.Wpf/bin/$Configuration/net10.0-windows/JP-Vision.exe"
     foreach($case in @(
-        'direct-results','single-result','match-circle','match-center-circle','fast-full-image',
+        'recipe-open-dialog','direct-results','single-result','match-circle','match-center-circle','fast-full-image',
         'fast-teaching','fast-teaching-circle','fast-teaching-polygon','caliper','large-image',
         'caliper-boundary-circle','caliper-boundary-rectangle','caliper-boundary-polygon',
         'geometry-distance','fixture-circle-distance','roi-annulus','roi-sector','roi-rotated',

@@ -30,6 +30,14 @@ public partial class MainWindow
             return;
         }
         Require(licensed && flow is not null && source is not null, "licensed editor/source unavailable");
+        if (scenario == "recipe-open-dialog")
+        {
+            SmokeRecipeOpenDialog();
+            CaptureWindow(scenario);
+            allowClose = true;
+            Application.Current.Shutdown();
+            return;
+        }
         if (scenario is "camera-close-empty" or "camera-close-stream")
         {
             await SmokeCameraCloseAsync(scenario);
@@ -40,6 +48,8 @@ public partial class MainWindow
         runInputs.Clear();
         if (scenario is "camera-source" or "camera-main-live")
             await SmokeCameraSourceAsync(scenario == "camera-main-live");
+        else if (scenario == "deep-learning")
+            await SmokeDeepLearningAsync();
         else if (scenario == "blob-analysis")
             await SmokeBlobAnalysisAsync();
         else if (scenario == "line-density")
@@ -745,6 +755,7 @@ public partial class MainWindow
         if (scenario == "edge-points-ranges") Graph.Select("edge");
         if (scenario == "line-density") Graph.Select("line");
         if (scenario == "blob-analysis") Graph.Select("blob");
+        if (scenario == "deep-learning") Graph.Select("defect");
         if (scenario is "camera-source" or "camera-main-live") Graph.Select("blob");
         await BusyAsync(RunOnceAsync);
         Require(result?.Status == ExecutionStatus.Succeeded, "reloaded saved flow did not run");

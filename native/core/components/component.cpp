@@ -5,6 +5,7 @@
 #include "annular_components.h"
 #include "edge_point_components.h"
 #include "blob_components.h"
+#include "deep_learning_components.h"
 #include <opencv2/imgproc.hpp>
 
 namespace jp {
@@ -279,6 +280,7 @@ const ComponentRegistry &component_registry() {
         register_annular_components(value);
         register_edge_point_components(value);
         register_blob_components(value);
+        register_deep_learning_components(value);
         return value;
     }();
     return registry;

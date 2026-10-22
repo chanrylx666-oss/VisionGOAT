@@ -32,7 +32,21 @@ public static class VisionErrorMessage
                 "可将“大图处理”设为“自动缩小工作图”，或在模块内缩小“检测 ROI”后使用原图模式。\n" +
                 "精确圆测量也可使用卡尺拟合；自动缩小会降低小目标和边缘定位的分辨率。";
         }
-        if (message.Contains("Annular unwrapping requires an annulus ROI", StringComparison.Ordinal))
+        if (message.StartsWith("DeepLearningRuntimeUnavailable:", StringComparison.Ordinal))
+            message = "深度学习运行环境不可用，请安装可选的 x64 ONNX Runtime 并重新构建。普通视觉算子仍可使用。\n" + message;
+        else if (message.StartsWith("DeepLearningModelMissing:", StringComparison.Ordinal))
+            message = "尚未选择模型，或模型库中的文件不存在。请在算子内导入模型清单并选择版本。\n" + message;
+        else if (message.StartsWith("DeepLearningModelInvalid:", StringComparison.Ordinal))
+            message = "模型校验失败，可能是文件被修改、张量格式不兼容或预处理配置无效。请重新导入符合约定的模型包。\n" + message;
+        else if (message.StartsWith("DeepLearningTileInvalid:", StringComparison.Ordinal))
+            message = "图块重叠宽度必须小于模型宽高，且总分块数不能超过 4096。请调整重叠宽度或检测 ROI。\n" + message;
+        else if (message.StartsWith("DeepLearningThresholdInvalid:", StringComparison.Ordinal))
+            message = "概率模型的缺陷分数阈值须在 0～1 之间。\n" + message;
+        else if (message.StartsWith("DeepLearningOutputInvalid:", StringComparison.Ordinal) || message.StartsWith("DeepLearningInferenceFailed:", StringComparison.Ordinal))
+            message = "本次深度学习推理失败，没有生成有效检测结果，不能判为合格。\n" + message;
+        else if (message.StartsWith("DeepLearningResultLimit:", StringComparison.Ordinal))
+            message = "缺陷区域数量超过处理上限。请检查阈值、最小面积或检测 ROI；结果没有被截断为合格。\n" + message;
+        else if (message.Contains("Annular unwrapping requires an annulus ROI", StringComparison.Ordinal))
             message = "圆环展开需要圆环／扇环 ROI，请在模块内绘制圆环并设置内外半径和角度。";
         else if (message.Contains("Annular unwrapping output exceeds the sampling budget", StringComparison.Ordinal) ||
                  message.Contains("Annular unwrapping dimensions exceed the sampling limit", StringComparison.Ordinal))

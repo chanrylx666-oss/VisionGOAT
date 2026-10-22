@@ -521,7 +521,18 @@ public partial class MainWindow : Window
         }
     }
     private void NewClick(object sender, RoutedEventArgs e) => Safe(() => { EnsureEditor(); if (!ConfirmDiscard()) return; flow?.Reset(); recipeDirectory = null; runInputs.Clear(); Graph.Select(null); UpdateTitle(); });
-    private void OpenRecipeClick(object sender, RoutedEventArgs e) => Safe(() => { EnsureEditor(); if (!ConfirmDiscard()) return; var dialog = new OpenFileDialog { Filter = "JP-Vision 配方|recipe.json;*.json", InitialDirectory = Path.Combine(AppContext.BaseDirectory, "samples/recipes") }; if (dialog.ShowDialog(this) == true) LoadRecipe(dialog.FileName); });
+    private static OpenFileDialog CreateRecipeOpenDialog()
+    {
+        // Shell item parsing requires native separators even when Directory.Exists accepts '/'.
+        string samples = Path.Combine(AppContext.BaseDirectory, "samples", "recipes");
+        return new OpenFileDialog
+        {
+            Filter = "JP-Vision 配方|recipe.json;*.json",
+            InitialDirectory = Directory.Exists(samples) ? samples : AppContext.BaseDirectory,
+            Title = "打开配方：选择 .vrecipe 文件夹中的 recipe.json"
+        };
+    }
+    private void OpenRecipeClick(object sender, RoutedEventArgs e) => Safe(() => { EnsureEditor(); if (!ConfirmDiscard()) return; var dialog = CreateRecipeOpenDialog(); if (dialog.ShowDialog(this) == true) LoadRecipe(dialog.FileName); });
     private void SaveClick(object sender, RoutedEventArgs e) => Safe(() => SaveRecipe(false));
     private void SaveAsClick(object sender, RoutedEventArgs e) => Safe(() => SaveRecipe(true));
     private void OpenImageClick(object sender, RoutedEventArgs e) => Safe(() => { EnsureEditor(); var dialog = new OpenFileDialog { Filter = "图像|*.png;*.bmp;*.jpg;*.jpeg;*.tif;*.tiff|所有文件|*.*" }; if (dialog.ShowDialog(this) == true) LoadImage(dialog.FileName); });

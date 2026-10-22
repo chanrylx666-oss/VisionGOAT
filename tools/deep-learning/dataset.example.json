@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "datasetId": "part-A",
+  "version": "1",
+  "sourceImages": "raw",
+  "train": [
+    { "image": "images/batch01/part001.png", "mask": "masks/batch01/part001.png", "group": "batch01" }
+  ],
+  "validation": [
+    { "image": "images/batch02/part021.png", "mask": "masks/batch02/part021.png", "group": "batch02" }
+  ],
+  "test": [
+    { "image": "images/batch03/part041.png", "mask": "masks/batch03/part041.png", "group": "batch03" }
+  ]
+}

@@ -126,6 +126,7 @@ public partial class MainWindow
             if (spec.Parameters.Any(p => p!["type"]!.GetValue<string>() == "template"))
                 BuildTemplatePanel(id);
             if (spec.Type == "PositionFixture") BuildFixturePanel(id);
+            if (spec.Type == "DeepLearningDefect") BuildDeepLearningModelPanel(id);
             if (spec.Type == "BlobAnalysis") Parameters.Children.Add(Note("在模块内二值化并分析连通区域，可按面积、尺寸、形状和接触边界筛选。面积为前景像素数；绿色区域标记独立显示，输出图像保留干净像素和当前坐标平面。"));
             if (spec.Type is "FindLines" or "LineCaliper" && IsCaliper(id))
                 BuildLineSamplingSummary(id, CurrentInputRoi(id), FixtureActive(id) ? FixturePositioning.Parameters(effective, inputFixture!) : effective);
@@ -154,6 +155,7 @@ public partial class MainWindow
             foreach (var parameter in orderedParameters)
             {
                 string type = parameter!["type"]!.GetValue<string>(), key = parameter["name"]!.GetValue<string>();
+                if (spec.Type == "DeepLearningDefect" && key is "modelRoot" or "modelKey") continue;
                 if (type is "template" or "roi" or "fixtureReference")
                     continue;
                 if (HasMeasurementRois(id) && (key.StartsWith("first", StringComparison.Ordinal) || key.StartsWith("second", StringComparison.Ordinal)) && key is not ("firstIndex" or "secondIndex" or "firstPoint" or "secondPoint")) continue;
@@ -762,6 +764,7 @@ public partial class MainWindow
     }
     private void AddResultPacket(StackPanel target, JsonElement packet)
     {
+        if (AddDeepLearningResult(target, packet)) return;
         if (AddBlobResult(target, packet)) return;
         if (AddEdgePointResult(target, packet)) return;
         if (packet.TryGetProperty("resultKind", out var kind) && kind.GetString() is "geometryMeasurement" or "positionFixture")

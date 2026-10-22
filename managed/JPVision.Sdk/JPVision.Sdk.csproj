@@ -16,4 +16,18 @@
     <None Include="../../artifacts/native/$(Configuration)/opencv_world500$(_OpenCvSuffix).dll" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Pack="true" PackagePath="runtimes/win-x64/native/" />
     <None Include="../../artifacts/native/$(Configuration)/vcruntime*.dll;../../artifacts/native/$(Configuration)/msvcp*.dll;../../artifacts/native/$(Configuration)/concrt*.dll;../../artifacts/native/$(Configuration)/vccorlib*.dll" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Pack="true" PackagePath="runtimes/win-x64/native/" />
   </ItemGroup>
+  <Target Name="CollectOptionalOnnxRuntime" BeforeTargets="GetCopyToOutputDirectoryItems">
+    <ItemGroup>
+      <ContentWithTargetPath Include="../../artifacts/dependencies/onnxruntime/win-x64/onnxruntime.dll"
+          Condition="Exists('../../artifacts/dependencies/onnxruntime/win-x64/onnxruntime.dll')"
+          TargetPath="onnxruntime.dll" CopyToOutputDirectory="PreserveNewest" />
+      <ContentWithTargetPath Include="../../artifacts/dependencies/onnxruntime/win-x64/onnxruntime_providers_shared.dll"
+          Condition="Exists('../../artifacts/dependencies/onnxruntime/win-x64/onnxruntime_providers_shared.dll')"
+          TargetPath="onnxruntime_providers_shared.dll" CopyToOutputDirectory="PreserveNewest" />
+      <ContentWithTargetPath Include="../../third_party/onnxruntime/LICENSE.txt"
+          TargetPath="notices/ONNXRuntime-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" />
+      <ContentWithTargetPath Include="../../third_party/onnxruntime/ThirdPartyNotices.txt"
+          TargetPath="notices/ONNXRuntime-ThirdPartyNotices.txt" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
 </Project>

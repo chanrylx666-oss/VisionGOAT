@@ -97,6 +97,7 @@ if(JPV_BUILD_RUNTIME)
     native/core/components/image_measurement.cpp native/core/components/annular_components.cpp
     native/core/components/edge_point_components.cpp
     native/core/components/blob_components.cpp
+    native/core/deep_learning.cpp native/core/components/deep_learning_components.cpp
     native/core/parameter_bindings.cpp native/core/parameter_expression.cpp)
   target_compile_definitions(JPVision.Runtime PRIVATE JPV_VERSION="${PROJECT_VERSION}")
   target_include_directories(JPVision.Runtime PRIVATE third_party native/core native/licensing config PUBLIC native/capi)
@@ -105,6 +106,13 @@ if(JPV_BUILD_RUNTIME)
     ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/artifacts/native/$<CONFIG>")
   add_custom_command(TARGET JPVision.Runtime POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "$<TARGET_FILE:OpenCVWorld>" "$<TARGET_FILE_DIR:JPVision.Runtime>")
+  set(_jpv_ort_directory "${CMAKE_SOURCE_DIR}/artifacts/dependencies/onnxruntime/win-x64")
+  foreach(_jpv_ort_library onnxruntime.dll onnxruntime_providers_shared.dll)
+    if(EXISTS "${_jpv_ort_directory}/${_jpv_ort_library}")
+      add_custom_command(TARGET JPVision.Runtime POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${_jpv_ort_directory}/${_jpv_ort_library}" "$<TARGET_FILE_DIR:JPVision.Runtime>")
+    endif()
+  endforeach()
   add_executable(JPVision.RuntimeCli native/tests/runtime_cli.cpp)
   target_include_directories(JPVision.RuntimeCli PRIVATE third_party)
   target_link_libraries(JPVision.RuntimeCli PRIVATE JPVision.Runtime OpenCVWorld)
