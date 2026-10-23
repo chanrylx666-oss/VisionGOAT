@@ -1,5 +1,9 @@
 # JP-Vision 0.7.2
 
+2026-10-23 快速匹配／快速定位新增**多模板库与尺寸搜索**：同一模块可保存最多 8 个模板，分别命名、启用、学习或导入；全图比较启用模板和指定尺度的候选，模板库输出分数最高的一个及模板名称、编号、中心和尺度。提供固定尺寸与 ±10% 预设，支持 0.5～2 倍精调。旧单模板配方保持兼容，操作与边界见 [多模板快速匹配](docs/fast-template-bank.md)。
+
+2026-10-23 默认执行改为 **C# 业务层 + OpenCV 原生计算内核**：流程调度、参数订阅、全局／局部变量、计算函数、运行状态与结果汇总位于 `JPVision.Sdk/Execution`；现有图像内存、算子计算及密集卡尺等热点继续使用 C++。旧配方和 WPF SDK 调用保持兼容，迁移边界、维护入口及实际配方验证见 [C# 业务执行层](docs/managed-execution.md)。
+
 2026-10-22 新增“深度学习缺陷检测”：独立模型仓库、ONNX 导入、原分辨率分块推理、缺陷数量／面积／质心／评分、独立绿色标记及 SDK 强类型结果。提供面向云端 RTX 5080 的有监督分割训练源码，当前已用合成数据验证 CPU 训练→导出→推理链路，尚未进行实际云端训练。使用方法见 [深度学习接入](docs/deep-learning-integration.md) 和 [云端训练步骤](tools/deep-learning/README.md)。
 
 源码学习入口：[代码逻辑与算子算法导读](docs/code-and-algorithms-guide.md)，覆盖执行链、32 类算子的实际算法、参数与结果传递、相机采集及扩展步骤；另提供 [PDF 阅读版](docs/JP-Vision代码逻辑与算子算法导读.pdf) 和 [Word 版](docs/JP-Vision代码逻辑与算子算法导读.docx)。
@@ -65,6 +69,7 @@ SDK 包为 `artifacts/packages/JPVision.Sdk.0.7.2.nupkg`，图像显示控件包
 
 ## 文档
 
+- [多模板快速匹配与尺寸搜索](docs/fast-template-bank.md)
 - [编辑器、参数、ROI 和模板操作](docs/studio-guide.md)
 - [海康 GigE 全局相机图像源](docs/camera-source.md)
 - [参数订阅、变量与计算函数](docs/parameter-subscriptions.md)
@@ -72,6 +77,7 @@ SDK 包为 `artifacts/packages/JPVision.Sdk.0.7.2.nupkg`，图像显示控件包
 - [Blob 分析与区域筛选](docs/blob-analysis.md)
 - [Visual Studio 开发与发布](docs/visual-studio-guide.md)
 - [架构与资源契约](docs/architecture.md)
+- [C# 业务执行层、原生内核边界与验证](docs/managed-execution.md)
 - [WPF / SDK 集成](docs/sdk-integration.md)
 - [离线授权与签发](docs/licensing.md)
 - [配方格式](docs/recipe-format.md)

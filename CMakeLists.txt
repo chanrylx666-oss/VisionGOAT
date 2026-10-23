@@ -88,7 +88,7 @@ if(JPV_BUILD_RUNTIME)
   if(NOT EXISTS "${CMAKE_SOURCE_DIR}/config/trusted_key.h")
     message(FATAL_ERROR "Configure the owner's public trust anchor with scripts/bootstrap.ps1 first.")
   endif()
-  add_library(JPVision.Runtime SHARED native/capi/runtime.cpp native/licensing/license.cpp native/core/graph.cpp native/core/roi.cpp
+  add_library(JPVision.Runtime SHARED native/capi/runtime.cpp native/licensing/license.cpp native/core/graph.cpp native/core/kernel_execution.cpp native/core/roi.cpp
     native/core/components/component.cpp native/core/components/basic_components.cpp
     native/core/components/geometry_components.cpp native/core/components/custom_components.cpp
     native/core/components/caliper_components.cpp native/core/components/template_components.cpp

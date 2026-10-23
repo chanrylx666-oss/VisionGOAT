@@ -287,7 +287,7 @@ public partial class MainWindow : Window
                 Log($"{flow.Spec(entry.Name).Label} · 大图检测 {resolution.GetProperty("inputWidth")} × {resolution.GetProperty("inputHeight")} → {resolution.GetProperty("workWidth")} × {resolution.GetProperty("workHeight")}；输出为原图坐标，精确测量建议缩小 ROI 使用原图／卡尺。");
         }
         StatusText.Text = result.Decision == InspectionDecision.Unknown ? $"● 处理完成 · {result.ElapsedMs:F1} ms" : $"● 检测{(result.Decision == InspectionDecision.Pass ? "通过" : "不通过")} · {result.ElapsedMs:F1} ms";
-        Log($"执行完成 · 算法 {result.ElapsedMs:F1} ms · 总计 {total.Elapsed.TotalMilliseconds:F1} ms · {Graph.NodeStates.Count} 个算子");
+        Log($"执行完成 · 流程 {result.ElapsedMs:F1} ms · 总计 {total.Elapsed.TotalMilliseconds:F1} ms · {Graph.NodeStates.Count} 个算子");
         if (timing is not null)
             Log($"耗时分解 · 取图 {captureMs:F1} ms · 配方准备 {timing.PreparationMs:F1} ms（{(timing.CacheHit ? "复用" : "重建")}）· SDK 执行 {timing.ExecutionMs:F1} ms · 结果显示准备 {display.Elapsed.TotalMilliseconds:F1} ms");
     }

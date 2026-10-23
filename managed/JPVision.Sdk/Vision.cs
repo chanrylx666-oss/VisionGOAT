@@ -1,5 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using JPVision.Sdk.Execution;
 
 namespace JPVision.Sdk;
 
@@ -19,6 +21,11 @@ public enum ExecutionStatus
 public enum InspectionDecision
 {
     Unknown, Pass, Fail
+}
+/// <summary>Managed orchestrates recipes in C#; Native retains the legacy executor for comparison.</summary>
+public enum VisionExecutionBackend
+{
+    Managed, Native
 }
 public record FrameInfo(int Width, int Height, int Stride, VisionPixelFormat PixelFormat, int OriginX, int OriginY);
 public record LicenseInfo(string Status, int Code, string? LicenseId, string? Customer, string? Message, string Store)
@@ -97,6 +104,7 @@ public sealed class VisionFrame : IDisposable
 public sealed class VisionEngine : IDisposable
 {
     private readonly EngineHandle handle;
+    public VisionExecutionBackend ExecutionBackend { get; }
     public static string Version => Marshal.PtrToStringUTF8(Native.Version())!;
     /// <summary>Native component descriptors, typed ports, parameters and defaults.</summary>
     public static JsonElement GetNodeCatalog()
@@ -109,8 +117,11 @@ public sealed class VisionEngine : IDisposable
         using var document = JsonDocument.Parse(Native.TakeString(Native.Diagnostics(out var text), text));
         return document.RootElement.Clone();
     }
-    public VisionEngine(string? licenseStore = null)
+    public VisionEngine(string? licenseStore = null) : this(licenseStore, VisionExecutionBackend.Managed) { }
+    public VisionEngine(string? licenseStore, VisionExecutionBackend backend)
     {
+        if (!Enum.IsDefined(backend)) throw new ArgumentOutOfRangeException(nameof(backend));
+        ExecutionBackend = backend;
         Native.Check(Native.EngineCreate(JsonSerializer.Serialize(new
         {
             licenseStore = licenseStore ?? ""
@@ -120,7 +131,19 @@ public sealed class VisionEngine : IDisposable
     public VisionRecipe LoadRecipe(string directory)
     {
         Native.Check(Native.RecipeLoad(handle, Path.GetFullPath(directory), out var pointer));
-        return new(pointer);
+        var recipeHandle = new RecipeHandle(pointer);
+        try
+        {
+            ManagedExecutionPlan? plan = null;
+            if (ExecutionBackend == VisionExecutionBackend.Managed)
+            {
+                var definition = Native.TakeString(Native.RecipeDefinition(recipeHandle, out var text), text);
+                plan = ManagedExecutionPlan.Create(JsonNode.Parse(definition)!.AsObject(),
+                    JsonNode.Parse(GetNodeCatalog().GetRawText())!.AsArray());
+            }
+            return new(recipeHandle, ExecutionBackend, plan);
+        }
+        catch { recipeHandle.Dispose(); throw; }
     }
     public string ValidateRecipe(string json) => Native.TakeString(Native.RecipeValidate(handle, json, out var text), text);
     public static string SealRecipe(string json) => Native.TakeString(Native.RecipeSeal(json, out var text), text);
@@ -130,11 +153,14 @@ public sealed class VisionEngine : IDisposable
 public sealed class VisionRecipe : IDisposable
 {
     private readonly RecipeHandle handle;
-    internal VisionRecipe(IntPtr pointer) => handle = new(pointer);
+    private readonly ManagedExecutionPlan? plan;
+    public VisionExecutionBackend ExecutionBackend { get; }
+    internal VisionRecipe(RecipeHandle handle, VisionExecutionBackend backend, ManagedExecutionPlan? plan)
+    { this.handle = handle; ExecutionBackend = backend; this.plan = plan; }
     public VisionSession CreateSession()
     {
         Native.Check(Native.SessionCreate(handle, out var pointer));
-        return new(pointer);
+        return new(pointer, ExecutionBackend, plan);
     }
     public JsonElement Description
     {
@@ -172,7 +198,10 @@ public sealed class VisionSession : IDisposable, IAsyncDisposable
     private readonly object gate = new();
     private bool disposed;
     private Task<InspectionResult>? active;
-    internal VisionSession(IntPtr pointer) => handle = new(pointer);
+    private readonly ManagedExecutionPlan? plan;
+    public VisionExecutionBackend ExecutionBackend { get; }
+    internal VisionSession(IntPtr pointer, VisionExecutionBackend backend, ManagedExecutionPlan? plan)
+    { handle = new(pointer); ExecutionBackend = backend; this.plan = plan; }
     public Task<InspectionResult> RunAsync(VisionFrame frame, RunRequest? request = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(frame);
@@ -194,17 +223,26 @@ public sealed class VisionSession : IDisposable, IAsyncDisposable
                 timeoutMs = request.TimeoutMs
             });
             Native.Check(Native.RunCreate(handle, frame.Handle, json, out var pointer));
-            active = ExecuteAsync(new RunHandle(pointer), cancellationToken);
+            active = ExecuteAsync(new RunHandle(pointer), json, cancellationToken);
             return active;
         }
     }
-    private static async Task<InspectionResult> ExecuteAsync(RunHandle run, CancellationToken token)
+    private async Task<InspectionResult> ExecuteAsync(RunHandle run, string requestJson, CancellationToken token)
     {
         using (run)
         using (token.Register(() => Native.RunCancel(run)))
         {
             return await Task.Run(() =>
             {
+                if (ExecutionBackend == VisionExecutionBackend.Managed)
+                {
+                    var managed = ManagedExecution.Execute(run, plan!, JsonNode.Parse(requestJson)!.AsObject());
+                    if (managed.Status == ExecutionStatus.Cancelled)
+                    { managed.Dispose(); throw new OperationCanceledException("Inspection safely cancelled.", token); }
+                    if (managed.Status == ExecutionStatus.TimedOut)
+                    { managed.Dispose(); throw new TimeoutException("Inspection completed after its deadline."); }
+                    return managed;
+                }
                 Native.Check(Native.RunExecute(run, out var pointer));
                 var resultHandle = new ResultHandle(pointer);
                 try

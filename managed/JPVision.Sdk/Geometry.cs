@@ -81,7 +81,13 @@ public sealed record VisionMatch(
     [property: JsonPropertyName("angleDegrees")] double AngleDegrees,
     [property: JsonPropertyName("scale")] double Scale,
     [property: JsonPropertyName("score")] double Score,
-    [property: JsonPropertyName("corners")] IReadOnlyList<VisionPoint> Corners);
+    [property: JsonPropertyName("corners")] IReadOnlyList<VisionPoint> Corners)
+{
+    /// <summary>Stable template-bank entry ID; empty for legacy single-template results.</summary>
+    [JsonPropertyName("templateId")] public string TemplateId { get; init; } = "";
+    /// <summary>Name of the winning bank entry; empty for legacy single-template results.</summary>
+    [JsonPropertyName("templateName")] public string TemplateName { get; init; } = "";
+}
 
 /// <summary>Region measurements in pixels. Contour analysis reports polygon area;
 /// Blob analysis declares AreaKind=pixelCount and measures actual foreground pixels.</summary>

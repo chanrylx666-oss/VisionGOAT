@@ -5,6 +5,7 @@
 #include "roi.h"
 #include "fixture.h"
 #include "parameter_bindings.h"
+#include "kernel_execution.h"
 #include <algorithm>
 #include <cmath>
 #include <functional>
@@ -47,7 +48,7 @@ static bool accepts_input(const Json &meta, const std::string &id, const std::st
         }
     throw Error(JPV_INVALID_RECIPE, "Unknown inputs port: " + id);
 }
-static void validate_parameter(const Json &p, const Json &value) {
+void validate_parameter(const Json &p, const Json &value) {
     auto name = p.at("name").get<std::string>(), type = p.at("type").get<std::string>();
     if (type == "fixtureReference")
         validate_fixture_reference(value);
@@ -82,7 +83,6 @@ static void validate_parameter(const Json &p, const Json &value) {
         }
     }
 }
-static Json serialize_value(const Value &value);
 Json result_field(const Value &value, const std::string &field) {
     Json serialized;
     const Json *current = std::get_if<Json>(&value);
@@ -453,7 +453,7 @@ std::shared_ptr<Run> accept_run(std::shared_ptr<Session> session, std::shared_pt
     session->active = run;
     return run;
 }
-static Json serialize_value(const Value &value) {
+Json serialize_value(const Value &value) {
     return std::visit(
         [](const auto &item) -> Json {
             using T = std::decay_t<decltype(item)>;
@@ -500,7 +500,7 @@ struct SerializedPort {
         return *encodedBytes;
     }
 };
-static bool unavailable_data(const Value &value) {
+bool unavailable_data(const Value &value) {
     if (auto contours = std::get_if<Contours>(&value))
         return !contours->dataAvailable;
     if (auto packet = std::get_if<Json>(&value); packet && packet->is_object())
@@ -511,7 +511,7 @@ static bool unavailable_data(const Value &value) {
         return !image->available;
     return false;
 }
-static Value skipped_value(const Component &entry, const InputValues &inputs, const Image &frame) {
+Value skipped_value(const Component &entry, const InputValues &inputs, const Image &frame) {
     auto type = entry.descriptor.at("outputs")[0].at("type").get<std::string>();
     Image image = frame;
     for (const auto &[port, value] : inputs)

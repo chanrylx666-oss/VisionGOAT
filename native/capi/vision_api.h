@@ -53,6 +53,7 @@ JPV_API int32_t __cdecl vision_recipe_load(jpv_handle engine, const char *direct
 JPV_API int32_t __cdecl vision_recipe_validate(jpv_handle engine, const char *recipe, char **diagnostics);
 JPV_API void __cdecl vision_recipe_release(jpv_handle recipe);
 JPV_API int32_t __cdecl vision_recipe_description(jpv_handle recipe, char **json);
+JPV_API int32_t __cdecl vision_recipe_definition(jpv_handle recipe, char **json);
 JPV_API int32_t __cdecl vision_session_create(jpv_handle recipe, jpv_handle *session);
 JPV_API void __cdecl vision_session_release(jpv_handle session);
 JPV_API int32_t __cdecl vision_frame_copy(const jpv_image_info *info, const uint8_t *data, jpv_handle *frame);
@@ -64,6 +65,18 @@ JPV_API int32_t __cdecl vision_run_create(jpv_handle session, jpv_handle frame, 
 JPV_API int32_t __cdecl vision_run_execute(jpv_handle run, jpv_handle *result);
 JPV_API void __cdecl vision_run_cancel(jpv_handle run);
 JPV_API void __cdecl vision_run_release(jpv_handle run);
+// Per-node kernel bridge used by the C# workflow. Pixels and typed values stay native.
+JPV_API int32_t __cdecl vision_kernel_begin(jpv_handle run, jpv_handle *kernel, char **info);
+JPV_API int32_t __cdecl vision_kernel_input(jpv_handle kernel, const char *node, char **json);
+JPV_API int32_t __cdecl vision_kernel_field(jpv_handle kernel, const char *node, const char *port,
+                                           const char *field, char **json);
+JPV_API int32_t __cdecl vision_kernel_step(jpv_handle kernel, const char *node,
+                                          const char *parameters, char **json);
+JPV_API int32_t __cdecl vision_kernel_publish(jpv_handle kernel, const char *output,
+                                             int32_t include_json, char **json);
+JPV_API int32_t __cdecl vision_kernel_release_node(jpv_handle kernel, const char *node);
+JPV_API int32_t __cdecl vision_kernel_finish(jpv_handle kernel, int32_t failed, jpv_handle *result);
+JPV_API void __cdecl vision_kernel_release(jpv_handle kernel);
 JPV_API int32_t __cdecl vision_result_json(jpv_handle result, char **json);
 JPV_API int32_t __cdecl vision_result_frame(jpv_handle result, const char *node, jpv_handle *frame);
 JPV_API int32_t __cdecl vision_result_input_frame(jpv_handle result, const char *node, jpv_handle *frame);

@@ -15,6 +15,8 @@ int iterations = int.Parse(Option("--iterations", "5")), warmup = int.Parse(Opti
 if (iterations is < 1 or > 100 || warmup is < 0 or > 10) throw new ArgumentException("iterations 1..100; warmup 0..10");
 bool debug = Option("--mode", "debug") == "debug";
 string configuration = Option("--configuration", "Debug");
+string requestedBackend = Option("--backend", "default");
+if (requestedBackend is not ("default" or "managed" or "native")) throw new ArgumentException("backend: default, managed or native");
 string recipePath = Option("--recipe", ""), imagePath = Option("--image", "");
 string? recipeSha256 = null, imageSha256 = null;
 bool real = recipePath.Length > 0 || imagePath.Length > 0;
@@ -71,7 +73,19 @@ var requestInputs = definition["inputs"]!.AsObject().Where(p => p.Value!["type"]
     .ToDictionary(p => p.Key, p => (object?)JsonSerializer.SerializeToElement(p.Value!["default"]));
 string folder = Path.Combine(runDirectory, "benchmark.vrecipe"); Directory.CreateDirectory(folder);
 File.WriteAllText(Path.Combine(folder, "recipe.json"), VisionEngine.SealRecipe(definition.ToJsonString()));
-using var engine = new VisionEngine(store); using var recipe = engine.LoadRecipe(folder); await using var session = recipe.CreateSession();
+VisionEngine CreateEngine()
+{
+    if (requestedBackend == "default") return new VisionEngine(store);
+    // Reflection keeps this development harness usable with saved SDK baselines predating the
+    // additive backend-selection API. No reflection is involved in production recipe execution.
+    var backendType = typeof(VisionEngine).Assembly.GetType("JPVision.Sdk.VisionExecutionBackend");
+    if (backendType is null)
+        return requestedBackend == "native" ? new VisionEngine(store) : throw new NotSupportedException("This SDK has no managed backend.");
+    var constructor = typeof(VisionEngine).GetConstructor(new[] { typeof(string), backendType })!;
+    return (VisionEngine)constructor.Invoke(new[] { (object)store, Enum.Parse(backendType, requestedBackend, true) });
+}
+using var engine = CreateEngine(); using var recipe = engine.LoadRecipe(folder); await using var session = recipe.CreateSession();
+string executionBackend = typeof(VisionEngine).GetProperty("ExecutionBackend")?.GetValue(engine)?.ToString() ?? "Native";
 using var frame = VisionFrame.CopyFrom(pixels, width, height, width * 3, VisionPixelFormat.Bgr24);
 var samples = new List<object>(); var wall = new List<double>(); var native = new List<double>();
 string? expectedHash = null; JsonObject? snapshot = null;
@@ -131,7 +145,7 @@ for (int iteration = -warmup; iteration < iterations; iteration++)
     var nodeTimings = result.Data.GetProperty("nodes").EnumerateObject().ToDictionary(p => p.Name,
         p => p.Value.EnumerateObject().Where(field => field.Name.EndsWith("Ms", StringComparison.Ordinal)).ToDictionary(field => field.Name, field => field.Value.GetDouble()));
     int bytes = Encoding.UTF8.GetByteCount(result.Data.GetRawText());
-    Console.WriteLine($"{(iteration < 0 ? "warmup" : "sample")} {iteration}: wall={timer.Elapsed.TotalMilliseconds:F1} native={result.ElapsedMs:F1} ms points={edge.Count} JSON={bytes}");
+    Console.WriteLine($"{(iteration < 0 ? "warmup" : "sample")} {iteration}: wall={timer.Elapsed.TotalMilliseconds:F1} execute={result.ElapsedMs:F1} ms points={edge.Count} JSON={bytes}");
     if (iteration >= 0)
     {
         wall.Add(timer.Elapsed.TotalMilliseconds); native.Add(result.ElapsedMs);
@@ -143,13 +157,14 @@ for (int iteration = -warmup; iteration < iterations; iteration++)
 double Median(List<double> list) { var values = list.OrderBy(v => v).ToArray(); int middle = values.Length / 2; return values.Length % 2 == 0 ? (values[middle - 1] + values[middle]) / 2 : values[middle]; }
 string dll = Path.Combine(AppContext.BaseDirectory, "JPVision.Runtime.dll");
 string sdk = typeof(VisionEngine).Assembly.Location;
-var report = new { configuration, debug, width, height, iterations, warmup, mode = real ? "user recipe and image, no camera, no UI" : "synthetic BGR full-resolution pointset, no camera, no UI",
+var report = new { configuration, requestedBackend, executionBackend, debug, width, height, iterations, warmup, mode = real ? "user recipe and image, no camera, no UI" : "synthetic BGR full-resolution pointset, no camera, no UI",
     recipePath, imagePath, recipeSha256, imageSha256, stationCount = expectedStations, pointCount = expectedPoints, distanceCount = expectedDistances,
     protocol = "Same source and reused recipe/session. Wall includes native execution, final JSON retrieval/managed parse. Typed result validation, JSON byte-count, canonical snapshot and image hash happen after the timer. Whole-process GC allocation delta; not native allocations. No accuracy claim for real parts.",
     nativeDll = new { path = dll, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(dll))) },
     sdkDll = new { path = sdk, sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(sdk))) },
-    outputSha256 = expectedHash, medianWallMs = Median(wall), medianNativeMs = Median(native), medianNodeMs = nodeSamples.ToDictionary(p => p.Key, p => Median(p.Value)), samples };
+    elapsedMsMeaning = "Reported workflow execution time; Managed includes per-node native result transfers. Compare medianWallMs across backends. medianNativeMs is retained as a historical field name.",
+    outputSha256 = expectedHash, medianWallMs = Median(wall), medianExecutionMs = Median(native), medianNativeMs = Median(native), medianNodeMs = nodeSamples.ToDictionary(p => p.Key, p => Median(p.Value)), samples };
 var options = new JsonSerializerOptions { WriteIndented = true };
 File.WriteAllText(Path.Combine(output, "report.json"), JsonSerializer.Serialize(report, options));
 File.WriteAllText(Path.Combine(output, "canonical-output.json"), snapshot!.ToJsonString(options));
-Console.WriteLine($"Saved {output}; median wall {Median(wall):F1} ms, native {Median(native):F1} ms, signature {expectedHash}");
+Console.WriteLine($"Saved {output}; median wall {Median(wall):F1} ms, execute {Median(native):F1} ms, signature {expectedHash}");

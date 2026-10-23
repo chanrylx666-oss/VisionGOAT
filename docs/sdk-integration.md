@@ -1,5 +1,11 @@
 # C# / WPF 集成
 
+快速匹配／快速定位可将 `model` 保存为多模板库，并设置 `scaleMinimum`、`scaleMaximum`、`scaleStep` 搜索尺寸变化。模板库返回全库最佳的一条匹配；`VisionMatch.TemplateId`、`TemplateName` 识别获胜模板，旧单模板结果为空字符串，原中心／分数／尺度字段不变。格式、资源上限与兼容规则见 [多模板快速匹配](fast-template-bank.md)。
+
+源码 SDK 默认使用 C# 业务执行层：`new VisionEngine(licenseStore)` 保持原有调用方式，流程调度、参数订阅、变量／函数、状态与结果汇总改由托管代码执行；OpenCV 和图像内存仍在原生内核。无需修改现有配方和 WPF 读取结果的代码。须同时更新 SDK 与配套原生 DLL，新版 SDK 的默认入口需要 `vision_kernel_*` 桥接导出。
+
+`new VisionEngine(licenseStore, VisionExecutionBackend.Native)` 可显式使用原 C++ 调度进行兼容性对照；默认不在两种后端之间自动回退。C# 业务代码入口与职责见 [C# 业务执行层](managed-execution.md)。日常 VS 源码运行可继续选择 [Profile 配置](performance-pointsets.md)。
+
 当前源码提供可选 net8.0 `JPVision.Acquisition`：`MvsCameraProvider` 经独立原生桥接使用已安装的海康 MVS，`GlobalCameraService.CaptureNextAsync` 等待业务请求后的新帧，通过 `CameraFrame.ToVisionFrame()` 交给现有 Session。全局预览与检测结果分开，停止／故障不会回退到旧预览帧；`RunRequest.FrameId` 可保存 SN、帧号与接收 QPC。仅支持单台海康 GigE 自由连续采集，完整项目引用方式、代码与超时／Busy 语义见 [全局相机图像源与 SDK](camera-source.md)。缺少 MVS 不影响文件图像运行；历史 NuGet 不包含此增量。
 
 `GetBlobAnalysis(name)` 可读取公开 Blob Result 或图像附带的 Blob 结果，返回候选／筛除／合格数量、可空总面积、完整 `VisionRegion` 列表、选中区域和标记。Blob 面积为真实前景像素数，周长为含孔洞的像素边界周长；新增区域属性 `AreaKind`、`AspectRatio`、`Extent`、`TouchesBoundary` 可空，保留旧轮廓结果兼容。操作、空结果语义和代码见 [Blob 分析与 SDK](blob-analysis.md)。

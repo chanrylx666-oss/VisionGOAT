@@ -80,6 +80,7 @@ struct RegionFeature {
 struct MatchFeature {
     double x, y, width, height, centerX, centerY, angleDegrees, scale, score;
     std::array<cv::Point2d, 4> corners;
+    std::string templateId{}, templateName{};
 };
 using Feature = std::variant<CircleFeature, LineFeature, RegionFeature, MatchFeature>;
 struct Features {

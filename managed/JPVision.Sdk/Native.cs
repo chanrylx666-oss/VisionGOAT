@@ -1,6 +1,7 @@
 using Microsoft.Win32.SafeHandles;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using JPVision.Sdk.Execution;
 
 namespace JPVision.Sdk;
 
@@ -65,6 +66,14 @@ internal sealed class ResultHandle(IntPtr value) : VisionHandle(value)
         return true;
     }
 }
+internal sealed class KernelHandle(IntPtr value) : VisionHandle(value)
+{
+    protected override bool ReleaseHandle()
+    {
+        Native.KernelRelease(handle);
+        return true;
+    }
+}
 
 internal static partial class Native
 {
@@ -73,7 +82,7 @@ internal static partial class Native
     [LibraryImport(Library, EntryPoint = "vision_diagnostics")] internal static partial int Diagnostics(out IntPtr text);
     [LibraryImport(Library, EntryPoint = "vision_node_catalog")] internal static partial int NodeCatalog(out IntPtr text);
     [LibraryImport(Library, EntryPoint = "vision_last_error")] private static partial IntPtr LastError();
-    [LibraryImport(Library, EntryPoint = "vision_string_free")] private static partial void StringFree(IntPtr text);
+    [LibraryImport(Library, EntryPoint = "vision_string_free")] internal static partial void StringFree(IntPtr text);
     [LibraryImport(Library, EntryPoint = "vision_machine_request")] internal static partial int MachineRequest(out IntPtr text);
     [LibraryImport(Library, EntryPoint = "vision_license_status", StringMarshalling = StringMarshalling.Utf8)] internal static partial int LicenseStatus(string? store, string feature, out IntPtr text);
     [LibraryImport(Library, EntryPoint = "vision_license_import", StringMarshalling = StringMarshalling.Utf8)] internal static partial int LicenseImport(string? store, string file, out IntPtr text);
@@ -82,6 +91,7 @@ internal static partial class Native
     [LibraryImport(Library, EntryPoint = "vision_recipe_load", StringMarshalling = StringMarshalling.Utf8)] internal static partial int RecipeLoad(EngineHandle engine, string directory, out IntPtr handle);
     [LibraryImport(Library, EntryPoint = "vision_recipe_release")] internal static partial void RecipeRelease(IntPtr handle);
     [LibraryImport(Library, EntryPoint = "vision_recipe_description")] internal static partial int RecipeDescription(RecipeHandle recipe, out IntPtr text);
+    [LibraryImport(Library, EntryPoint = "vision_recipe_definition")] internal static partial int RecipeDefinition(RecipeHandle recipe, out IntPtr text);
     [LibraryImport(Library, EntryPoint = "vision_session_create")] internal static partial int SessionCreate(RecipeHandle recipe, out IntPtr handle);
     [LibraryImport(Library, EntryPoint = "vision_session_release")] internal static partial void SessionRelease(IntPtr handle);
     [LibraryImport(Library, EntryPoint = "vision_frame_copy")] internal static unsafe partial int FrameCopy(in NativeImageInfo info, byte* bytes, out IntPtr handle);
@@ -92,6 +102,14 @@ internal static partial class Native
     [LibraryImport(Library, EntryPoint = "vision_run_execute")] internal static partial int RunExecute(RunHandle run, out IntPtr handle);
     [LibraryImport(Library, EntryPoint = "vision_run_cancel")] internal static partial void RunCancel(RunHandle run);
     [LibraryImport(Library, EntryPoint = "vision_run_release")] internal static partial void RunRelease(IntPtr handle);
+    [LibraryImport(Library, EntryPoint = "vision_kernel_begin")] internal static partial int KernelBegin(RunHandle run, out IntPtr kernel, out IntPtr text);
+    [LibraryImport(Library, EntryPoint = "vision_kernel_input", StringMarshalling = StringMarshalling.Utf8)] internal static partial int KernelInput(KernelHandle kernel, string node, out IntPtr text);
+    [LibraryImport(Library, EntryPoint = "vision_kernel_field", StringMarshalling = StringMarshalling.Utf8)] internal static partial int KernelField(KernelHandle kernel, string node, string port, string field, out IntPtr text);
+    [LibraryImport(Library, EntryPoint = "vision_kernel_step", StringMarshalling = StringMarshalling.Utf8)] internal static partial int KernelStep(KernelHandle kernel, string node, string parameters, out IntPtr text);
+    [LibraryImport(Library, EntryPoint = "vision_kernel_publish", StringMarshalling = StringMarshalling.Utf8)] internal static partial int KernelPublish(KernelHandle kernel, string output, int includeJson, out IntPtr text);
+    [LibraryImport(Library, EntryPoint = "vision_kernel_release_node", StringMarshalling = StringMarshalling.Utf8)] internal static partial int KernelReleaseNode(KernelHandle kernel, string node);
+    [LibraryImport(Library, EntryPoint = "vision_kernel_finish")] internal static partial int KernelFinish(KernelHandle kernel, int failed, out IntPtr result);
+    [LibraryImport(Library, EntryPoint = "vision_kernel_release")] internal static partial void KernelRelease(IntPtr kernel);
     [LibraryImport(Library, EntryPoint = "vision_result_json")] internal static partial int ResultJson(ResultHandle result, out IntPtr text);
     [LibraryImport(Library, EntryPoint = "vision_result_frame", StringMarshalling = StringMarshalling.Utf8)] internal static partial int ResultFrame(ResultHandle result, string node, out IntPtr handle);
     [LibraryImport(Library, EntryPoint = "vision_result_input_frame", StringMarshalling = StringMarshalling.Utf8)] internal static partial int ResultInputFrame(ResultHandle result, string node, out IntPtr handle);
@@ -130,6 +148,17 @@ internal static partial class Native
             return ReadJson(text);
         }
         finally { if (text != IntPtr.Zero) StringFree(text); }
+    }
+    internal static NativeJsonBuffer TakeJsonBuffer(int status, IntPtr text)
+    {
+        var buffer = new NativeJsonBuffer(text);
+        try
+        {
+            Check(status);
+            if (buffer.IsInvalid) throw new InvalidDataException("Missing native response.");
+            return buffer;
+        }
+        catch { buffer.Dispose(); throw; }
     }
     private static unsafe JsonElement ReadJson(IntPtr text)
     {

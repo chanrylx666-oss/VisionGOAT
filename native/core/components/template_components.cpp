@@ -3,6 +3,7 @@
 #include <cmath>
 #include <numbers>
 #include <mutex>
+#include <unordered_set>
 #include <opencv2/geometry.hpp>
 #include <opencv2/imgproc.hpp>
 
@@ -64,11 +65,81 @@ static TemplateModel decode_model(const Json &model) {
     cache.push_back({std::move(key), decoded});
     return decoded;
 }
+struct FastTemplate {
+    TemplateModel model;
+    std::string id, name;
+};
+static bool is_template_bank(const Json &model) {
+    return model.is_object() && model.contains("templates");
+}
+static std::vector<FastTemplate> read_fast_models(const Json &model, bool trained) {
+    if (!is_template_bank(model))
+        return {{decode_model(model), {}, {}}};
+    require(model.size() == 1 && model.at("templates").is_array() &&
+                !model.at("templates").empty() && model.at("templates").size() <= 8,
+            JPV_INVALID_RECIPE, "Template bank must contain between 1 and 8 templates only.");
+    std::vector<FastTemplate> enabled;
+    std::unordered_set<std::string> ids;
+    for (const auto &entry : model.at("templates")) {
+        require(entry.is_object() && entry.size() == 4 && entry.contains("id") && entry.contains("name") &&
+                    entry.contains("enabled") && entry.contains("model") && entry.at("id").is_string() &&
+                    entry.at("name").is_string() && entry.at("enabled").is_boolean(),
+                JPV_INVALID_RECIPE, "Each template needs exactly id, name, enabled and model fields.");
+        auto id = entry.at("id").get<std::string>(), name = entry.at("name").get<std::string>();
+        require(!id.empty() && id.size() <= 64 &&
+                    std::all_of(id.begin(), id.end(), [](unsigned char c) {
+                        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                               (c >= '0' && c <= '9') || c == '_' || c == '-';
+                    }) && ids.insert(id).second,
+                JPV_INVALID_RECIPE, "Template ids must be unique and use 1-64 ASCII letters, digits, _ or -.");
+        require(!name.empty() && name.size() <= 128, JPV_INVALID_RECIPE,
+                "Template names must contain between 1 and 128 UTF-8 bytes.");
+        // Disabled entries are still persisted recipe data, so invalid or empty models are rejected.
+        auto decoded = decode_model(entry.at("model"));
+        if (entry.at("enabled").get<bool>())
+            enabled.push_back({std::move(decoded), std::move(id), std::move(name)});
+    }
+    require(!trained || !enabled.empty(), JPV_INVALID_RECIPE,
+            "Enable at least one taught template before running fast matching.");
+    return enabled;
+}
 void validate_template(const Json &model, bool trained) {
     require(model.is_object(), JPV_INVALID_RECIPE, "Template model must be an object.");
     if (!trained && model.empty())
         return;
-    decode_model(model);
+    read_fast_models(model, trained);
+}
+static std::vector<double> fast_scales(const Json &p, size_t enabledTemplates) {
+    double minimum = p.at("scaleMinimum"), maximum = p.at("scaleMaximum"), step = p.at("scaleStep");
+    require(std::isfinite(minimum) && std::isfinite(maximum) && std::isfinite(step) && minimum >= .5 &&
+                maximum <= 2 && minimum <= maximum && step >= .01 && step <= 1,
+            JPV_INVALID_RECIPE, "Fast matching scales need 0.5 <= minimum <= maximum <= 2 and step 0.01-1.");
+    std::vector<double> scales{minimum};
+    int count = int(std::floor((maximum - minimum) / step + 1e-8));
+    for (int index = 1; index <= count; ++index) {
+        double value = minimum + index * step;
+        // The explicit maximum below also covers a final interval smaller than the step.
+        if (value < maximum - 1e-10)
+            scales.push_back(value);
+    }
+    if (maximum > minimum)
+        scales.push_back(maximum);
+    if (minimum <= 1 && maximum >= 1) {
+        auto unit = std::find_if(scales.begin(), scales.end(), [](double value) {
+            return std::abs(value - 1) < 1e-10;
+        });
+        if (unit == scales.end())
+            scales.push_back(1);
+        else if (*unit != minimum && *unit != maximum)
+            *unit = 1;
+        // An endpoint very close to 1 remains an endpoint; include exact unit scale as well.
+        else if (*unit != 1)
+            scales.push_back(1);
+    }
+    std::sort(scales.begin(), scales.end());
+    require(enabledTemplates != 0 && scales.size() * enabledTemplates <= 121, JPV_RESOURCE_LIMIT,
+            "Fast matching accepts at most 121 enabled-template/scale candidates; reduce templates or scale range.");
+    return scales;
 }
 struct Pose {
     cv::Mat gray, mask, matrix;
@@ -145,7 +216,20 @@ static double overlap(const MatchFeature &a, const MatchFeature &b) {
     double area = width * height;
     return area / (a.width * a.height + b.width * b.height - area);
 }
-static cv::Mat translation_scores(const cv::Mat &gray, const cv::Mat &valid, const TemplateModel &model) {
+struct FastSearchBudget {
+    size_t pixels = 0;
+    void add(const cv::Mat &image) {
+        constexpr size_t maximum = 512ULL * 1024 * 1024;
+        require(image.total() <= maximum - pixels, JPV_RESOURCE_LIMIT,
+                "Fast matching search budget exceeded; reduce ROI, enabled templates or scale range.");
+        pixels += image.total();
+    }
+};
+static cv::Mat translation_scores(const cv::Mat &gray, const cv::Mat &valid, const TemplateModel &model,
+                                  FastSearchBudget &budget) {
+    // Count actual coarse tiles, refinement patches and fallback tiles, rather than charging a
+    // full-resolution scan for every pose even when coarse search avoids that scan.
+    budget.add(gray);
     cv::Mat scores;
     if (valid.empty() && cv::countNonZero(model.mask) == int(model.mask.total())) {
         cv::matchTemplate(gray, model.gray, scores, cv::TM_CCOEFF_NORMED);
@@ -169,20 +253,21 @@ static void suppress_peak(cv::Mat &scores, cv::Point point, cv::Size size) {
     scores(area).setTo(-1);
 }
 static constexpr size_t MaxFastImagePixels = 32ULL * 1024 * 1024, MaxCoarseImagePixels = 8ULL * 1024 * 1024;
-static constexpr int FastTileEdge = 1024;
+static constexpr int FastTilePositions = 1024;
 // Split the domain of template top-left positions, not the input pixels. Each input tile includes
 // modelSize - 1 extra rows/columns, so every possible window occurs once, including seam windows.
 template <typename Collect>
 static void translation_tiles(const cv::Mat &gray, const cv::Mat &valid, const TemplateModel &model,
-                              Collect collect) {
+                              FastSearchBudget &budget, Collect collect) {
     int columns = gray.cols - model.gray.cols + 1, rows = gray.rows - model.gray.rows + 1;
-    int stepX = FastTileEdge - model.gray.cols + 1, stepY = FastTileEdge - model.gray.rows + 1;
-    require(stepX > 0 && stepY > 0, JPV_RESOURCE_LIMIT, "Fast matching model exceeds tile budget.");
+    // Size the result domain independently of the model: a 1024-pixel scaled template must not
+    // degenerate into one input tile per pixel. Input tiles remain bounded to 2047 x 2047 pixels.
+    int stepX = FastTilePositions, stepY = FastTilePositions;
     for (int y = 0; y < rows; y += stepY)
         for (int x = 0; x < columns; x += stepX) {
             int scoreWidth = std::min(stepX, columns - x), scoreHeight = std::min(stepY, rows - y);
             cv::Rect tile(x, y, scoreWidth + model.gray.cols - 1, scoreHeight + model.gray.rows - 1);
-            collect(translation_scores(gray(tile), valid.empty() ? cv::Mat() : valid(tile), model),
+            collect(translation_scores(gray(tile), valid.empty() ? cv::Mat() : valid(tile), model, budget),
                     cv::Point(x, y));
         }
 }
@@ -213,20 +298,51 @@ static void retain_candidate(std::vector<TranslationCandidate> &candidates, Tran
     if (candidates.size() > size_t(limit))
         candidates.pop_back();
 }
-static Features fast_translation(const Image &source, const Json &p, bool single) {
-    require(source.pixels.total() <= MaxFastImagePixels, JPV_RESOURCE_LIMIT,
-            "Fast matching accepts at most 32 megapixels.");
-    auto model = decode_model(p.at("model"));
-    auto gray = gray_pixels(source);
-    Features out;
+struct CoarseSearchImage {
+    cv::Mat gray, valid;
+};
+struct FastSearchImages {
+    cv::Mat gray, valid;
+    std::map<int, CoarseSearchImage> coarse;
+    const CoarseSearchImage &downsample(int factor) {
+        auto found = coarse.find(factor);
+        if (found != coarse.end())
+            return found->second;
+        require(size_t(gray.cols / factor) * (gray.rows / factor) <= MaxCoarseImagePixels,
+                JPV_RESOURCE_LIMIT, "Fast matching coarse image budget exceeded.");
+        CoarseSearchImage image;
+        cv::resize(gray, image.gray, {gray.cols / factor, gray.rows / factor}, 0, 0, cv::INTER_AREA);
+        if (!valid.empty()) {
+            cv::resize(valid, image.valid, image.gray.size(), 0, 0, cv::INTER_AREA);
+            cv::threshold(image.valid, image.valid, 254, 255, cv::THRESH_BINARY);
+        }
+        return coarse.emplace(factor, std::move(image)).first->second;
+    }
+};
+static TemplateModel scaled_fast_model(const TemplateModel &model, double scale) {
+    if (scale == 1)
+        return model;
+    int width = int(std::lround(model.gray.cols * scale)),
+        height = int(std::lround(model.gray.rows * scale));
+    require(width > 0 && height > 0 && width <= 1024 && height <= 1024, JPV_RESOURCE_LIMIT,
+            "Scaled fast matching template exceeds 1024 pixels per side.");
+    TemplateModel scaled;
+    cv::resize(model.gray, scaled.gray, {width, height}, 0, 0, cv::INTER_LINEAR);
+    cv::resize(model.mask, scaled.mask, scaled.gray.size(), 0, 0, cv::INTER_NEAREST);
+    cv::Scalar mean, deviation;
+    cv::meanStdDev(scaled.gray, mean, deviation, scaled.mask);
+    // Resizing may erase a sparse mask or its contrast. Such a pose has no valid NCC score;
+    // never let OpenCV's constant-template score produce a false positive.
+    if (cv::countNonZero(scaled.mask) < 16 || deviation[0] < 1)
+        return {};
+    return scaled;
+}
+static std::vector<TranslationCandidate> fast_candidates(FastSearchImages &images,
+                                                        const TemplateModel &model, const Json &p,
+                                                        FastSearchBudget &budget) {
+    const auto &gray = images.gray;
     if (gray.cols < model.gray.cols || gray.rows < model.gray.rows)
-        return out;
-    double minimumPixel, maximumPixel;
-    cv::minMaxLoc(gray, &minimumPixel, &maximumPixel, nullptr, nullptr, source.valid);
-    // A small, high-contrast object can have very little effect on full-image variance.
-    // Only skip an actually constant effective input, leaving local contrast checks to NCC.
-    if (maximumPixel - minimumPixel < 1)
-        return out;
+        return {};
     int factor = p.at("searchDownsample"), limit = p.at("candidateLimit");
     if (factor == 0) {
         factor = 1;
@@ -257,7 +373,7 @@ static Features fast_translation(const Image &source, const Json &p, bool single
                 if (patch.width >= model.gray.cols && patch.height >= model.gray.rows) {
                     cv::Point refined;
                     auto fine = translation_scores(
-                        gray(patch), source.valid.empty() ? cv::Mat() : source.valid(patch), model);
+                        gray(patch), images.valid.empty() ? cv::Mat() : images.valid(patch), model, budget);
                     cv::minMaxLoc(fine, nullptr, &score, nullptr, &refined);
                     if (std::isfinite(score) && score >= threshold)
                         retain_candidate(candidates, {refined + patch.tl(), score}, limit, model.gray.size(),
@@ -270,51 +386,82 @@ static Features fast_translation(const Image &source, const Json &p, bool single
         }
     };
     if (factor > 1) {
-        cv::Mat small, validity;
         TemplateModel coarse;
-        require(size_t(gray.cols / factor) * (gray.rows / factor) <= MaxCoarseImagePixels, JPV_RESOURCE_LIMIT,
-                "Fast matching coarse image budget exceeded.");
-        cv::resize(gray, small, {gray.cols / factor, gray.rows / factor}, 0, 0, cv::INTER_AREA);
+        const auto &image = images.downsample(factor);
         cv::resize(model.gray, coarse.gray, {model.gray.cols / factor, model.gray.rows / factor}, 0, 0,
                    cv::INTER_AREA);
         cv::resize(model.mask, coarse.mask, coarse.gray.size(), 0, 0, cv::INTER_NEAREST);
-        if (!source.valid.empty()) {
-            cv::resize(source.valid, validity, small.size(), 0, 0, cv::INTER_AREA);
-            cv::threshold(validity, validity, 254, 255, cv::THRESH_BINARY);
-        }
         cv::Scalar mean, deviation;
         cv::meanStdDev(coarse.gray, mean, deviation, coarse.mask);
         if (deviation[0] >= 1 && cv::countNonZero(coarse.mask) >= 16)
-            translation_tiles(small, validity, coarse, [&](cv::Mat scores, cv::Point origin) {
+            translation_tiles(image.gray, image.valid, coarse, budget, [&](cv::Mat scores, cv::Point origin) {
                 collect(std::move(scores), origin, coarse.gray.size(), 0.1, true);
             });
     }
     bool fallback = factor > 1 && candidates.empty();
     if (factor == 1 || fallback)
-        translation_tiles(gray, source.valid, model, [&](cv::Mat scores, cv::Point origin) {
+        translation_tiles(gray, images.valid, model, budget, [&](cv::Mat scores, cv::Point origin) {
             collect(std::move(scores), origin, model.gray.size(), threshold, false);
         });
-    int maximum = single ? 1 : p.at("maximumMatches").get<int>();
-    for (const auto &[point, score] : candidates) {
-        MatchFeature match{double(source.x + point.x),
-                           double(source.y + point.y),
-                           double(model.gray.cols),
-                           double(model.gray.rows),
-                           source.x + point.x + model.gray.cols / 2.0,
-                           source.y + point.y + model.gray.rows / 2.0,
-                           0,
-                           1,
-                           score,
-                           {}};
-        match.corners = {{{match.x, match.y},
-                          {match.x + match.width, match.y},
-                          {match.x + match.width, match.y + match.height},
-                          {match.x, match.y + match.height}}};
+    return candidates;
+}
+static Features fast_translation(const Image &source, const Json &p, bool single) {
+    require(source.pixels.total() <= MaxFastImagePixels, JPV_RESOURCE_LIMIT,
+            "Fast matching accepts at most 32 megapixels.");
+    auto models = read_fast_models(p.at("model"), true);
+    auto scales = fast_scales(p, models.size());
+    // Gray conversion and each coarse input level are shared by all templates and scales.
+    FastSearchImages images{gray_pixels(source), source.valid, {}};
+    Features out;
+    double minimumPixel, maximumPixel;
+    cv::minMaxLoc(images.gray, &minimumPixel, &maximumPixel, nullptr, nullptr, source.valid);
+    // A small, high-contrast object can have very little effect on full-image variance.
+    // Only skip an actually constant effective input, leaving local contrast checks to NCC.
+    if (maximumPixel - minimumPixel < 1)
+        return out;
+    bool bank = is_template_bank(p.at("model"));
+    int maximum = bank || single ? 1 : p.at("maximumMatches").get<int>();
+    std::vector<MatchFeature> candidates;
+    FastSearchBudget budget;
+    for (const auto &entry : models)
+        for (double scale : scales) {
+            auto model = scaled_fast_model(entry.model, scale);
+            if (model.gray.empty())
+                continue;
+            auto found = fast_candidates(images, model, p, budget);
+            // A bank produces one best identity, so weaker matches for the same pose cannot win.
+            if (bank && found.size() > 1)
+                found.resize(1);
+            for (const auto &[point, score] : found) {
+                MatchFeature match{double(source.x + point.x),
+                                   double(source.y + point.y),
+                                   double(model.gray.cols),
+                                   double(model.gray.rows),
+                                   source.x + point.x + model.gray.cols / 2.0,
+                                   source.y + point.y + model.gray.rows / 2.0,
+                                   0,
+                                   scale,
+                                   score,
+                                   {},
+                                   entry.id,
+                                   entry.name};
+                match.corners = {{{match.x, match.y},
+                                  {match.x + match.width, match.y},
+                                  {match.x + match.width, match.y + match.height},
+                                  {match.x, match.y + match.height}}};
+                candidates.push_back(std::move(match));
+            }
+        }
+    // Generation is bank order, increasing scale, then deterministic score/y/x for each pose.
+    // A stable sort preserves that ordering when scores are exactly equal.
+    std::stable_sort(candidates.begin(), candidates.end(),
+                     [](const auto &a, const auto &b) { return a.score > b.score; });
+    for (const auto &match : candidates) {
         bool duplicate = std::any_of(out.items.begin(), out.items.end(), [&](const auto &kept) {
             return overlap(match, std::get<MatchFeature>(kept)) > p.at("overlapThreshold").get<double>();
         });
         if (!duplicate)
-            out.items.emplace_back(std::move(match));
+            out.items.emplace_back(match);
         if (out.items.size() >= size_t(maximum))
             break;
     }
@@ -326,7 +473,10 @@ void register_template_components(ComponentRegistry &registry) {
                                    parameter("scoreThreshold", "最小匹配分数", "number", .8, .05, 1),
                                    parameter("searchDownsample", "粗搜索倍数（0=自动）", "integer", 0, 0, 8),
                                    parameter("candidateLimit", "最大候选数", "integer", 64, 8, 256),
-                                   parameter("overlapThreshold", "最大重叠比例", "number", .2, 0, .9)});
+                                   parameter("overlapThreshold", "最大重叠比例", "number", .2, 0, .9),
+                                   parameter("scaleMinimum", "最小模板尺度", "number", 1.0, .5, 2),
+                                   parameter("scaleMaximum", "最大模板尺度", "number", 1.0, .5, 2),
+                                   parameter("scaleStep", "模板尺度步长", "number", .05, .01, 1)});
         if (!single)
             params.push_back(parameter("maximumMatches", "最大目标数量", "integer", 10, 1, 100));
         auto definition = component(
@@ -336,7 +486,8 @@ void register_template_components(ComponentRegistry &registry) {
                 return fast_translation(std::get<Image>(*input), p, single);
             },
             [](const Json &p) {
-                validate_template(p.at("model"), true);
+                auto models = read_fast_models(p.at("model"), true);
+                fast_scales(p, models.size());
                 int factor = p.at("searchDownsample");
                 require(factor == 0 || factor == 1 || factor == 2 || factor == 4 || factor == 8,
                         JPV_INVALID_RECIPE, "Search downsample must be 0, 1, 2, 4 or 8.");
@@ -426,6 +577,8 @@ void register_template_components(ComponentRegistry &registry) {
             return out;
         },
         [](const Json &p) {
+            require(!is_template_bank(p.at("model")), JPV_INVALID_RECIPE,
+                    "Template banks are supported by FastTemplateMatch and FastLocate only.");
             validate_template(p.at("model"), true);
             pose_count(p);
         }));

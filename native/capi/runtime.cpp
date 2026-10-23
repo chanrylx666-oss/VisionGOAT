@@ -1,5 +1,6 @@
 #define JPV_RUNTIME_EXPORTS
 #include "graph.h"
+#include "kernel_execution.h"
 #include "license.h"
 #include "vision_api.h"
 #include <cstring>
@@ -170,6 +171,14 @@ int32_t __cdecl vision_recipe_description(jpv_handle recipe, char **json) {
                             {"decisionOutput", document.at("decisionOutput")}});
     });
 }
+int32_t __cdecl vision_recipe_definition(jpv_handle recipe, char **json) {
+    if (json) *json = nullptr;
+    return guard([&] {
+        auto value = object<jp::Recipe>(recipe);
+        value->engine->license->check();
+        write_string(json, value->plan.recipe);
+    });
+}
 int32_t __cdecl vision_session_create(jpv_handle recipe, jpv_handle *session) {
     if (session)
         *session = nullptr;
@@ -250,6 +259,58 @@ void __cdecl vision_run_cancel(jpv_handle run) {
 }
 void __cdecl vision_run_release(jpv_handle run) {
     delete static_cast<Holder<jp::Run> *>(run);
+}
+int32_t __cdecl vision_kernel_begin(jpv_handle run, jpv_handle *kernel, char **info) {
+    if (kernel) *kernel = nullptr;
+    if (info) *info = nullptr;
+    return guard([&] {
+        auto value = std::make_shared<jp::KernelContext>(object<jp::Run>(run));
+        write_string(info, value->info());
+        try { output(kernel, std::move(value)); }
+        catch (...) {
+            if (info && *info) { vision_string_free(*info); *info = nullptr; }
+            throw;
+        }
+    });
+}
+int32_t __cdecl vision_kernel_input(jpv_handle kernel, const char *node, char **json) {
+    if (json) *json = nullptr;
+    return guard([&] { write_string(json, object<jp::KernelContext>(kernel)->input_metadata(safe_string(node, 128))); });
+}
+int32_t __cdecl vision_kernel_field(jpv_handle kernel, const char *node, const char *port,
+                                   const char *field, char **json) {
+    if (json) *json = nullptr;
+    return guard([&] {
+        write_string(json, object<jp::KernelContext>(kernel)->field(safe_string(node, 128),
+                                                                 safe_string(port, 128), safe_string(field, 128)));
+    });
+}
+int32_t __cdecl vision_kernel_step(jpv_handle kernel, const char *node, const char *parameters, char **json) {
+    if (json) *json = nullptr;
+    return guard([&] {
+        auto values = jp::strict_json(safe_string(parameters, 16 * 1024 * 1024), JPV_INVALID_RECIPE);
+        write_string(json, object<jp::KernelContext>(kernel)->step(safe_string(node, 128), std::move(values)));
+    });
+}
+int32_t __cdecl vision_kernel_publish(jpv_handle kernel, const char *name, int32_t includeJson, char **json) {
+    if (json) *json = nullptr;
+    return guard([&] {
+        jp::require(includeJson == 0 || includeJson == 1, JPV_INVALID_ARGUMENT, "Invalid publication option.");
+        write_string(json, object<jp::KernelContext>(kernel)->publish(safe_string(name, 128), includeJson != 0));
+    });
+}
+int32_t __cdecl vision_kernel_release_node(jpv_handle kernel, const char *node) {
+    return guard([&] { object<jp::KernelContext>(kernel)->release_node(safe_string(node, 128)); });
+}
+int32_t __cdecl vision_kernel_finish(jpv_handle kernel, int32_t failed, jpv_handle *result) {
+    if (result) *result = nullptr;
+    return guard([&] {
+        jp::require(failed == 0 || failed == 1, JPV_INVALID_ARGUMENT, "Invalid completion option.");
+        output(result, object<jp::KernelContext>(kernel)->finish(failed != 0));
+    });
+}
+void __cdecl vision_kernel_release(jpv_handle kernel) {
+    delete static_cast<Holder<jp::KernelContext> *>(kernel);
 }
 int32_t __cdecl vision_result_json(jpv_handle result, char **json) {
     if (json)

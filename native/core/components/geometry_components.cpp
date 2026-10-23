@@ -115,7 +115,7 @@ Json feature_values(const Features &features) {
                     Json corners = Json::array();
                     for (auto p : value.corners)
                         corners.push_back({{"x", p.x}, {"y", p.y}});
-                    return {{"kind", "match"},
+                    Json match = {{"kind", "match"},
                             {"x", value.x},
                             {"y", value.y},
                             {"width", value.width},
@@ -126,6 +126,12 @@ Json feature_values(const Features &features) {
                             {"scale", value.scale},
                             {"score", value.score},
                             {"corners", corners}};
+                    // Keep legacy single-template result shapes unchanged.
+                    if (!value.templateId.empty()) {
+                        match["templateId"] = value.templateId;
+                        match["templateName"] = value.templateName;
+                    }
+                    return match;
                 } else {
                     Json region{{"kind", "region"},
                                 {"area", value.area},
@@ -456,6 +462,12 @@ void integrate_measurements(Component &definition) {
         if (kind == "region" && (name == "centroidX" || name == "centroidY"))
             fields[path]["validWhen"] = "measurement.selected.centroidValid";
     }
+    if (kind == "match") {
+        fields["measurement.selected.templateId"] =
+            {{"type", "String"}, {"nullable", true}, {"label", "模板编号"}};
+        fields["measurement.selected.templateName"] =
+            {{"type", "String"}, {"nullable", true}, {"label", "模板名称"}};
+    }
 }
 Json feature_overlays(const Features &features, const std::string &color, double lineWidth) {
     Json items = Json::array();
@@ -513,7 +525,8 @@ Json feature_overlays(const Features &features, const std::string &color, double
                     items.push_back({{"type", "text"},
                                      {"x", value.x},
                                      {"y", value.y - 16},
-                                     {"text", std::to_string(value.score).substr(0, 5)},
+                                     {"text", (value.templateName.empty() ? "" : value.templateName + " ") +
+                                                  std::to_string(value.score).substr(0, 5)},
                                      {"color", color},
                                      {"lineWidth", lineWidth}});
             },

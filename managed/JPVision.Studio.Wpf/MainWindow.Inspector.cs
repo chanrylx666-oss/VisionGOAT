@@ -460,118 +460,6 @@ public partial class MainWindow
     {
         await BusyAsync(async () => { if (!template) EnsureManualRoi(id); await PrepareInputAsync(id); if (!template && flow!.Spec(id).Type == "FindCircles" && (MatchPositionActive(id) || FixtureActive(id)) && shape is not ("circle" or "annulus")) shape = "circle"; ImageView.BeginDraw(shape, template); Log(template ? "绘制模板区域；完成后点击“学习模板”。" : "绘制检测 ROI。多边形双击或 Enter 完成。"); });
     }
-    private void BuildTemplatePanel(string id)
-    {
-        Header(Parameters, "内置模板绘制");
-        var model = flow!.Node(id)["parameters"]?["model"]?.AsObject();
-        if (model is not null && model.Count > 0)
-        {
-            int w = model["width"]!.GetValue<int>(), h = model["height"]!.GetValue<int>();
-            byte[] pixels = Convert.FromBase64String(model["grayBase64"]!.GetValue<string>());
-            if (model["maskBase64"] is JsonNode m)
-            {
-                var mask = Convert.FromBase64String(m.GetValue<string>());
-                for (int i = 0; i < pixels.Length; i++)
-                if (mask[i] == 0)
-                    pixels[i] = 0;
-            }
-            var image = BitmapSource.Create(w, h, 96, 96, PixelFormats.Gray8, null, pixels, w);
-            image.Freeze();
-            Parameters.Children.Add(new Border { BorderBrush = (Brush)FindResource("Border"), BorderThickness = new Thickness(1), Padding = new Thickness(5), Margin = new Thickness(0, 0, 0, 8), Height = 92, Child = new Image { Source = image, Stretch = Stretch.Uniform } });
-            Parameters.Children.Add(Note($"已学习 · {w} × {h} 像素 · {(model.ContainsKey("maskBase64") ? "含形状掩膜" : "矩形模板")}"));
-        }
-        else
-            Parameters.Children.Add(Note("尚未学习。模板须包含物品边缘和少量背景，纯色区域无法匹配。"));
-        var shape = ShapeChoice(flow.TemplateRegions.GetValueOrDefault(id, RoiRegion.None).Shape, advanced: false);
-        Parameters.Children.Add(shape);
-        var row = new StackPanel { Orientation = Orientation.Horizontal };
-        var draw = new Button { Content = "绘制模板", Padding = new Thickness(9, 6, 9, 6) };
-        var learn = new Button { Content = "学习模板", Style = (Style)FindResource("PrimaryButton"), Padding = new Thickness(9, 6, 9, 6) };
-        draw.Click += async (_, _) => await DrawRegionAsync(id, ShapeValue(shape), true);
-        learn.Click += async (_, _) => await BusyAsync(() => LearnTemplateAsync(id));
-        row.Children.Add(draw);
-        row.Children.Add(learn);
-        Parameters.Children.Add(row);
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 7, 0, 0) };
-        var import = new Button { Content = "导入", Padding = new Thickness(9, 5, 9, 5) };
-        var export = new Button { Content = "导出", Padding = new Thickness(9, 5, 9, 5), IsEnabled = model?.Count > 0 };
-        var clear = new Button { Content = "清除", Padding = new Thickness(9, 5, 9, 5) };
-        import.Click += (_, _) => Safe(() => ImportTemplate(id));
-        export.Click += (_, _) => Safe(() => ExportTemplate(id));
-        clear.Click += (_, _) => Safe(() => { retainInput = true; try { flow.Change(() => { flow.Node(id)["parameters"]!["model"] = new JsonObject(); flow.TemplateRegions.Remove(id); }); ImageView.Template = RoiRegion.None; ImageView.InvalidateVisual(); } finally { retainInput = false; } });
-        actions.Children.Add(import);
-        actions.Children.Add(export);
-        actions.Children.Add(clear);
-        Parameters.Children.Add(actions);
-        Parameters.Children.Add(Note("模板区域与检测 ROI 独立。快速模块默认仅搜索位置；旋转或缩放可使用“灰度模板匹配”。"));
-    }
-    private async Task LearnTemplateAsync(string id)
-    {
-        if (flow is null || !flow.TemplateRegions.TryGetValue(id, out var region) || region.Shape == "none")
-            throw new InvalidOperationException("请先在模块内绘制模板区域。");
-        await PrepareInputAsync(id);
-        var info = inputFrame!.Info;
-        var model = TemplateLearning.Learn(inputFrame.CopyPixels(), info.Width, info.Height, info.Stride, info.PixelFormat, region);
-        retainInput = true;
-        try
-        {
-            flow.SetParameter(id, "model", model);
-        }
-        finally { retainInput = false; }
-        ImageView.Template = region;
-        ImageView.EditEnabled = true;
-        ImageView.InvalidateVisual();
-        Log($"模板已学习 · {model["width"]} × {model["height"]} · 可直接执行");
-    }
-    private void ImportTemplate(string id)
-    {
-        EnsureEditor();
-        var dialog = new OpenFileDialog { Filter = "模板或图像|*.vtemplate;*.json;*.png;*.bmp;*.jpg;*.jpeg;*.tif;*.tiff" };
-        if (dialog.ShowDialog(this) != true)
-            return;
-        if (new FileInfo(dialog.FileName).Length > 2 * 1024 * 1024)
-            throw new InvalidOperationException("模板文件过大。");
-        JsonObject model;
-        if (Path.GetExtension(dialog.FileName) is ".json" or ".vtemplate")
-            model = JsonNode.Parse(File.ReadAllText(dialog.FileName))!.AsObject();
-        else
-        {
-            using var stream = File.OpenRead(dialog.FileName);
-            var bmp = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad).Frames[0];
-            if (bmp.PixelWidth > 512 || bmp.PixelHeight > 512)
-                throw new InvalidOperationException("导入模板图像宽高不能超过 512 像素。");
-            var gray = new FormatConvertedBitmap(bmp, PixelFormats.Gray8, null, 0);
-            byte[] bytes = new byte[gray.PixelWidth * gray.PixelHeight];
-            gray.CopyPixels(bytes, gray.PixelWidth, 0);
-            model = TemplateLearning.Learn(bytes, gray.PixelWidth, gray.PixelHeight, gray.PixelWidth, VisionPixelFormat.Gray8, RoiRegion.Rectangle(0, 0, gray.PixelWidth, gray.PixelHeight));
-        }
-        ValidateModel(model);
-        UpdateParameter(id, "model", model);
-        Log("模板已导入");
-    }
-    private static void ValidateModel(JsonObject model)
-    {
-        if (model.Any(p => p.Key is not "width" and not "height" and not "grayBase64" and not "maskBase64"))
-            throw new ArgumentException("未知模板字段。");
-        int w = model["width"]!.GetValue<int>(), h = model["height"]!.GetValue<int>();
-        if (w < 4 || h < 4 || w > 512 || h > 512)
-            throw new ArgumentException("模板宽高应为 4～512。");
-        var pixels = Convert.FromBase64String(model["grayBase64"]!.GetValue<string>());
-        if (pixels.Length != w * h)
-            throw new ArgumentException("模板像素长度不匹配。");
-        var mask = model["maskBase64"] is JsonNode m ? Convert.FromBase64String(m.GetValue<string>()) : Enumerable.Repeat((byte)255, w * h).ToArray();
-        if (mask.Length != w * h || mask.Any(p => p != 0 && p != 255))
-            throw new ArgumentException("模板掩膜无效。");
-        var valid = pixels.Where((_, i) => mask[i] != 0).Select(p => (double)p).ToArray();
-        if (valid.Length < 16 || valid.Average(p => p * p) - Math.Pow(valid.Average(), 2) < 1)
-            throw new ArgumentException("模板缺少有效灰度对比。");
-    }
-    private void ExportTemplate(string id)
-    {
-        var dialog = new SaveFileDialog { Filter = "JP-Vision 模板|*.vtemplate", FileName = "object.vtemplate" };
-        if (dialog.ShowDialog(this) == true)
-            WriteAtomic(dialog.FileName, flow!.Node(id)["parameters"]!["model"]!.ToJsonString());
-    }
     private void BuildRunInputs()
     {
         if (flow is null)
@@ -818,7 +706,7 @@ public partial class MainWindow
             {
                 "circle" => new[] { "centerX", "centerY", "radius", "diameter", "area", "perimeter", "rmsError" },
                 "line" => new[] { "centerX", "centerY", "x1", "y1", "x2", "y2", "length", "angleDegrees", "rmsError" },
-                "match" => new[] { "centerX", "centerY", "score", "x", "y", "width", "height", "angleDegrees", "scale" },
+                "match" => new[] { "templateName", "templateId", "centerX", "centerY", "score", "x", "y", "width", "height", "angleDegrees", "scale" },
                 _ => new[] { "centroidX", "centroidY", "centroidValid", "area", "perimeter", "circularity", "x", "y", "width", "height" }
             };
             foreach (string field in fields)
@@ -848,7 +736,7 @@ public partial class MainWindow
             target.Children.Add(new Expander { Header = title, Content = details });
         }
     }
-    private static readonly Dictionary<string, string> ResultLabels = new() { ["detection"] = "检测分辨率", ["downsampled"] = "使用了降采样", ["inputWidth"] = "输入宽度", ["inputHeight"] = "输入高度", ["workWidth"] = "工作图宽度", ["workHeight"] = "工作图高度", ["scaleX"] = "水平缩放比例", ["scaleY"] = "垂直缩放比例", ["width"] = "宽度", ["height"] = "高度", ["count"] = "目标数量", ["found"] = "找到目标", ["passed"] = "数量判定", ["selected"] = "选中目标", ["selectedValid"] = "选中目标有效", ["selectedIndex"] = "目标索引", ["featureKind"] = "结果类型", ["radius"] = "半径", ["diameter"] = "直径", ["centerX"] = "圆心／中心 X", ["centerY"] = "圆心／中心 Y", ["area"] = "面积", ["perimeter"] = "周长", ["score"] = "匹配分数", ["angleDegrees"] = "角度（°）", ["scale"] = "尺度", ["length"] = "长度", ["rmsError"] = "拟合 RMS", ["requestedCount"] = "卡尺数量", ["sampledCount"] = "采样点数", ["retainedCount"] = "保留点数", ["rejectedCount"] = "剔除点数", ["missingCount"] = "未找到边缘", ["foregroundPixels"] = "前景像素数", ["originX"] = "原点 X", ["originY"] = "原点 Y", ["stride"] = "步长", ["pixelFormat"] = "像素格式" };
+    private static readonly Dictionary<string, string> ResultLabels = new() { ["detection"] = "检测分辨率", ["downsampled"] = "使用了降采样", ["inputWidth"] = "输入宽度", ["inputHeight"] = "输入高度", ["workWidth"] = "工作图宽度", ["workHeight"] = "工作图高度", ["scaleX"] = "水平缩放比例", ["scaleY"] = "垂直缩放比例", ["width"] = "宽度", ["height"] = "高度", ["count"] = "目标数量", ["found"] = "找到目标", ["passed"] = "数量判定", ["selected"] = "选中目标", ["selectedValid"] = "选中目标有效", ["selectedIndex"] = "目标索引", ["featureKind"] = "结果类型", ["radius"] = "半径", ["diameter"] = "直径", ["centerX"] = "圆心／中心 X", ["centerY"] = "圆心／中心 Y", ["area"] = "面积", ["perimeter"] = "周长", ["templateName"] = "匹配模板", ["templateId"] = "模板 ID", ["score"] = "匹配分数", ["angleDegrees"] = "角度（°）", ["scale"] = "尺度", ["length"] = "长度", ["rmsError"] = "拟合 RMS", ["requestedCount"] = "卡尺数量", ["sampledCount"] = "采样点数", ["retainedCount"] = "保留点数", ["rejectedCount"] = "剔除点数", ["missingCount"] = "未找到边缘", ["foregroundPixels"] = "前景像素数", ["originX"] = "原点 X", ["originY"] = "原点 Y", ["stride"] = "步长", ["pixelFormat"] = "像素格式" };
     private void AddJson(StackPanel target, JsonElement value, int depth)
     {
         if (depth > 5)

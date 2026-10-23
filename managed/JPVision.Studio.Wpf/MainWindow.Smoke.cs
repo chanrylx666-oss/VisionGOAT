@@ -56,6 +56,8 @@ public partial class MainWindow
         }
         if (scenario is "camera-source" or "camera-main-live")
             await SmokeCameraSourceAsync(scenario == "camera-main-live");
+        else if (scenario == "fast-template-bank")
+            await SmokeTemplateBankAsync();
         else if (scenario == "deep-learning")
             await SmokeDeepLearningAsync();
         else if (scenario == "blob-analysis")
@@ -619,13 +621,13 @@ public partial class MainWindow
             await DrawRegionAsync("match", shape, true);
             ImageView.CommitRegion(region, true);
             await BusyAsync(() => LearnTemplateAsync("match"));
-            Require(flow.Node("match")["parameters"]!["model"]!["width"]!.GetValue<int>() == (shape == "circle" ? 34 : 48), "built-in teaching did not store model");
+            Require(TemplateBank.Read(flow.Node("match")["parameters"]!["model"]!.AsObject()).Single().Model["width"]!.GetValue<int>() == (shape == "circle" ? 34 : 48), "built-in teaching did not store model");
             Graph.Select("source");
             Require(ImageView.Roi.Shape=="none"&&ImageView.Template.Shape=="none","selection retained a previous node's ROI or template");
             Graph.Select("match");
             await BusyAsync(RunOnceAsync);
             var measurement = result!.GetNodeMeasurement<VisionMatch>("match");
-            Require(measurement.Count == 2 && measurement.SelectedValid, "fast teaching did not locate objects");
+            Require(measurement.Count == 1 && measurement.SelectedValid, "template bank did not select the best object");
             var values = result.GetNodeOutput<JsonElement>("match", "features");
             Require(values.EnumerateArray().Any(v => v.GetProperty("x").GetDouble() == (shape == "circle" ? 68 : 61) && v.GetProperty("y").GetDouble() == (shape == "circle" ? 76 : 73)), "refined location wrong");
             var original = flow.Node("match")["parameters"]!["model"]!.ToJsonString();
@@ -835,6 +837,12 @@ public partial class MainWindow
         {
             InspectorTabs.SelectedIndex = 0;
             if (InspectorTabs.Items[0] is System.Windows.Controls.TabItem tab && tab.Content is System.Windows.Controls.ScrollViewer scroll) scroll.ScrollToTop();
+            await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        }
+        if (scenario == "fast-template-bank" && launch.Contains("--template-panel"))
+        {
+            InspectorTabs.SelectedIndex = 0;
+            if (InspectorTabs.Items[0] is System.Windows.Controls.TabItem bankTab && bankTab.Content is System.Windows.Controls.ScrollViewer bankScroll) bankScroll.ScrollToTop();
             await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         }
         CaptureWindow(scenario);

@@ -13,15 +13,20 @@ flowchart LR
     Acquisition --> Bridge[可选 C ABI / JPVision.Camera.Mvs]
     Bridge --> MVS[已安装海康 MVS GigE SDK]
     Acquisition -->|拥有像素的 VisionFrame| SDK
-    SDK --> CABI[C ABI]
-    CABI --> Runtime[MSVC Runtime / DAG 执行]
+    SDK --> Workflow[C# / Execution 业务执行]
+    Workflow --> CABI[C ABI / 单算子调用]
+    CABI --> Runtime[MSVC / OpenCV 算子与图像内存]
     Runtime --> OpenCV[OpenCV 5]
     Runtime --> License[原生许可证服务 / Windows CNG]
     Issuer[开发者 LicenseIssuer / DPAPI 私钥] --> Grant[离线签名许可证]
     Grant --> License
 ```
 
-Runtime 不引用 Qt、WPF 或相机 SDK。Studio 和 WPF 使用相同配方与算法。Editor.Core 只负责编辑、接口和模板编码，正式执行由独立 C++ 编译计划驱动。
+Runtime 不引用 Qt、WPF 或相机 SDK。Studio 和 WPF 使用相同配方与算法。Editor.Core 负责编辑、接口和模板编码；默认正式执行由 SDK 中的 C# Execution 层驱动。
+
+`ManagedExecutionPlan` 编译数据连接和参数依赖，决定实际执行的祖先子图、顺序及引用计数；`ManagedBindings` 和 `ManagedExpression` 处理本次变量、函数、参数订阅与坐标来源；`ManagedExecution` 负责调度、运行状态、调试结果、输出发布及最终判定。输入图像、有效掩膜、不可变图像上下文和 OpenCV 特征仍由原生内核持有，通过不透明句柄传递。C# 每次明确指定一个算子，原生桥不自行遍历流程。
+
+原 C++ 全流程入口保留为 `VisionExecutionBackend.Native`，用于旧 C ABI 调用方兼容及对照测试；WPF 和原有 `new VisionEngine(...)` 默认走 `Managed`。配方内容哈希、外部资源安全校验、算子参数与像素资源上限、机器绑定授权仍在原生边界检查，C# 调度不能绕开这些约束。迁移范围与验证见 [C# 业务执行层](managed-execution.md)。
 
 组件描述、算法与校验统一到 ComponentRegistry。execute／expand 保留旧零／单输入适配；新增 executeInputs 接收完整 InputValues，expandInputs 使用真实输入附加图像投影。端口按 node+port 取值，参数字段也参与同一 DAG 和引用计数。见 [本轮契约](m0-m2-implementation.md) 和 [组件开发](component-authoring.md)。
 

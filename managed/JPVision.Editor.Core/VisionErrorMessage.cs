@@ -93,6 +93,16 @@ public static class VisionErrorMessage
             message = "圆圆距离的两个输入都需要圆结果。请连接两个“圆查找”的全部结果，并检查目标索引。";
         else if (message.Contains("Required input not connected", StringComparison.Ordinal))
             message = "算子的输入端口尚未连接，请连接相同类型的端口。";
+        else if (message.Contains("Enable at least one taught template", StringComparison.Ordinal))
+            message = "模板库没有启用的模板，请至少勾选一个模板的“参与匹配”。";
+        else if (message.Contains("Fast matching scales need", StringComparison.Ordinal))
+            message = "模板尺度须满足 0.5 ≤ 最小尺度 ≤ 最大尺度 ≤ 2，尺度步长须为 0.01～1。1 表示教学尺寸。";
+        else if (message.Contains("121 enabled-template/scale candidates", StringComparison.Ordinal))
+            message = "启用模板数与搜索尺度数的乘积不能超过 121。请增大尺度步长、缩小尺度范围，或停用部分模板。";
+        else if (message.Contains("Fast matching search budget exceeded", StringComparison.Ordinal))
+            message = "快速匹配的累计搜索量超出上限，本次没有返回未比较完的结果。请缩小检测 ROI、尺度范围，或减少启用模板。";
+        else if (message.Contains("Template bank must contain", StringComparison.Ordinal))
+            message = "模板库须包含 1～8 个完整模板，请先学习或导入模板。";
         else if (message.Contains("Template has not", StringComparison.Ordinal))
             message = "模板尚未学习，请在算子参数内绘制模板并点击“学习模板”。";
         else if (message.Contains("image is unavailable", StringComparison.OrdinalIgnoreCase))
