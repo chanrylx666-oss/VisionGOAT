@@ -14,69 +14,112 @@
 namespace jp {
 static constexpr int MaximumLineCaliperCount = 32768, MaximumLineFitIterations = 128;
 static double sample(const Image &image, const cv::Mat &gray, double x, double y) {
+    // Check before conversion so distant/NaN coordinates never become invalid integer indices.
+    if (!(x >= 0 && y >= 0 && x < gray.cols - 1 && y < gray.rows - 1 &&
+          x < image.pixels.cols - 1 && y < image.pixels.rows - 1))
+        return NAN;
     int ix = int(std::floor(x)), iy = int(std::floor(y));
-    if (ix < 0 || iy < 0 || ix + 1 >= gray.cols || iy + 1 >= gray.rows)
-        return NAN;
-    if (!valid_point(image, ix, iy) || !valid_point(image, ix + 1, iy) || !valid_point(image, ix, iy + 1) ||
-        !valid_point(image, ix + 1, iy + 1))
-        return NAN;
+    if (!image.valid.empty()) {
+        const auto *upper = image.valid.ptr<uint8_t>(iy) + ix;
+        const auto *lower = image.valid.ptr<uint8_t>(iy + 1) + ix;
+        // Keep all four validity checks even for zero interpolation weights.
+        if (!upper[0] || !upper[1] || !lower[0] || !lower[1])
+            return NAN;
+    }
+    const auto *upper = gray.ptr<uint8_t>(iy) + ix;
+    const auto *lower = gray.ptr<uint8_t>(iy + 1) + ix;
     double fx = x - ix, fy = y - iy;
-    return (1 - fy) * ((1 - fx) * gray.at<uint8_t>(iy, ix) + fx * gray.at<uint8_t>(iy, ix + 1)) +
-           fy * ((1 - fx) * gray.at<uint8_t>(iy + 1, ix) + fx * gray.at<uint8_t>(iy + 1, ix + 1));
+    return (1 - fy) * ((1 - fx) * upper[0] + fx * upper[1]) +
+           fy * ((1 - fx) * lower[0] + fx * lower[1]);
 }
 struct EdgeProjection {
     std::vector<double> values, smooth, gradients;
     int half;
 };
-static EdgeProjection edge_projection(const Image &image, const cv::Mat &gray, cv::Point2d center,
-                                      cv::Point2d normal, const Json &p) {
-    int half = int(std::ceil(p.at("searchLength").get<double>() / 2)), width = p.at("projectionWidth");
-    std::vector<double> values(2 * half + 1, NAN), smooth(values.size(), NAN);
-    cv::Point2d tangent(-normal.y, normal.x);
-    bool median = p.value("projectionStatistic", "mean") == "median";
-    std::vector<double> window(median ? width : 0);
+struct ProjectionSettings {
+    int half, width, radius;
+    bool median;
+    std::vector<double> weights;
+    double weightSum = 0;
+    explicit ProjectionSettings(const Json &p)
+        : half(int(std::ceil(p.at("searchLength").get<double>() / 2))),
+          width(p.at("projectionWidth")), radius(0),
+          median(p.value("projectionStatistic", "mean") == "median") {
+        double sigma = p.at("sigma");
+        radius = sigma > 0 ? std::max(1, int(std::ceil(sigma * 3))) : 0;
+        weights.reserve(size_t(2 * radius + 1));
+        for (int k = -radius; k <= radius; ++k) {
+            double weight = radius ? std::exp(-k * k / (2 * sigma * sigma)) : 1;
+            weights.push_back(weight);
+            weightSum += weight;
+        }
+    }
+};
+struct ProjectionScratch {
+    EdgeProjection projection;
+    std::vector<double> window;
+    explicit ProjectionScratch(const ProjectionSettings &p)
+        : projection{std::vector<double>(2 * p.half + 1), std::vector<double>(2 * p.half + 1),
+                     std::vector<double>(2 * p.half + 1), p.half},
+          window(p.median ? p.width : 0) {}
+};
+static void edge_projection(const Image &image, const cv::Mat &gray, cv::Point2d center,
+                            cv::Point2d normal, const ProjectionSettings &p,
+                            ProjectionScratch &scratch) {
+    const int half = p.half, width = p.width, radius = p.radius;
+    auto &values = scratch.projection.values;
+    auto &smooth = scratch.projection.smooth;
+    auto &gradients = scratch.projection.gradients;
+    auto &window = scratch.window;
+    std::fill(values.begin(), values.end(), NAN);
+    std::fill(smooth.begin(), smooth.end(), NAN);
+    std::fill(gradients.begin(), gradients.end(), NAN);
+    const double tangentX = -normal.y, tangentY = normal.x;
     for (int j = -half; j <= half; ++j) {
         double total = 0;
         bool valid = true;
+        const double baseX = center.x + normal.x * double(j);
+        const double baseY = center.y + normal.y * double(j);
         for (int k = -width / 2; k <= width / 2; ++k) {
-            auto point = center + normal * double(j) + tangent * double(k);
-            double value = sample(image, gray, point.x, point.y);
+            double x = baseX + tangentX * double(k);
+            double y = baseY + tangentY * double(k);
+            double value = sample(image, gray, x, y);
             valid &= std::isfinite(value);
             total += value;
-            if (median)
+            if (p.median)
                 window[k + width / 2] = value;
         }
         if (valid) {
-            if (median)
+            if (p.median)
                 std::nth_element(window.begin(), window.begin() + width / 2, window.begin() + width);
-            values[j + half] = median ? window[width / 2] : total / width;
+            values[j + half] = p.median ? window[width / 2] : total / width;
         }
     }
-    double sigma = p.at("sigma");
-    int radius = sigma > 0 ? std::max(1, int(std::ceil(sigma * 3))) : 0;
     for (int j = radius; j < int(values.size()) - radius; ++j) {
-        double total = 0, weight = 0;
+        double total = 0;
         for (int k = -radius; k <= radius; ++k) {
-            double w = radius ? std::exp(-k * k / (2 * sigma * sigma)) : 1;
-            total += values[j + k] * w;
-            weight += w;
+            total += values[j + k] * p.weights[k + radius];
         }
-        smooth[j] = total / weight;
+        smooth[j] = total / p.weightSum;
     }
-    std::vector<double> gradients(values.size(), NAN);
     for (int j = 1; j < int(values.size()) - 1; ++j)
         gradients[j] = (smooth[j + 1] - smooth[j - 1]) / 2;
-    return {std::move(values), std::move(smooth), std::move(gradients), half};
+}
+static EdgeProjection edge_projection(const Image &image, const cv::Mat &gray, cv::Point2d center,
+                                      cv::Point2d normal, const Json &p) {
+    ProjectionSettings settings(p);
+    ProjectionScratch scratch(settings);
+    edge_projection(image, gray, center, normal, settings, scratch);
+    return std::move(scratch.projection);
 }
 struct ProjectionEdge {
     double offset, contrast;
     bool rising;
 };
-static std::vector<ProjectionEdge> projection_edges(const EdgeProjection &projection, const Json &p,
-                                                    const std::string &polarity) {
+static void projection_edges(const EdgeProjection &projection, double threshold, bool subpixel,
+                             const std::string &polarity, std::vector<ProjectionEdge> &edges) {
     const auto &gradients = projection.gradients;
-    std::vector<ProjectionEdge> edges;
-    double threshold = p.at("edgeThreshold");
+    edges.clear();
     for (int j = 2; j < int(gradients.size()) - 2; ++j) {
         double raw = gradients[j], strength = polarity == "darkToLight"   ? raw
                                               : polarity == "lightToDark" ? -raw
@@ -91,40 +134,77 @@ static std::vector<ProjectionEdge> projection_edges(const EdgeProjection &projec
         if (strength < magnitude(j - 1) || strength < magnitude(j + 1))
             continue;
         double a = std::abs(gradients[j - 1]), b = std::abs(gradients[j]), c = std::abs(gradients[j + 1]);
-        double denominator = a - 2 * b + c, offset = p.value("subpixelRefinement", true) &&
+        double denominator = a - 2 * b + c, offset = subpixel &&
                                                              std::isfinite(denominator) &&
                                                              std::abs(denominator) > 1e-8
                                                          ? std::clamp(.5 * (a - c) / denominator, -.5, .5)
                                                          : 0;
         edges.push_back({j - projection.half + offset, strength, raw > 0});
     }
+}
+static std::vector<ProjectionEdge> projection_edges(const EdgeProjection &projection, const Json &p,
+                                                    const std::string &polarity) {
+    std::vector<ProjectionEdge> edges;
+    projection_edges(projection, p.at("edgeThreshold"), p.value("subpixelRefinement", true), polarity,
+                     edges);
     return edges;
 }
+class CaliperSampler {
+    ProjectionSettings settings_;
+    ProjectionScratch scratch_;
+    std::vector<ProjectionEdge> candidates_;
+    double threshold_;
+    bool subpixel_;
+    std::string polarity_, selection_;
+  public:
+    explicit CaliperSampler(const Json &p)
+        : settings_(p), scratch_(settings_), threshold_(p.at("edgeThreshold")),
+          subpixel_(p.value("subpixelRefinement", true)), polarity_(p.at("polarity").get<std::string>()),
+          selection_(p.at("edgeSelection").get<std::string>()) {
+        candidates_.reserve(scratch_.projection.gradients.size());
+    }
+    CaliperEdgeSample sample_edge(const Image &image, const cv::Mat &gray, cv::Point2d center,
+                                  cv::Point2d normal) {
+        CaliperEdgeSample result;
+        edge_projection(image, gray, center, normal, settings_, scratch_);
+        const auto &projection = scratch_.projection;
+        result.samplingAvailable = std::any_of(projection.gradients.begin(), projection.gradients.end(),
+                                               [](double value) { return std::isfinite(value); });
+        projection_edges(projection, threshold_, subpixel_, polarity_, candidates_);
+        // A zero threshold still requires a real edge; a flat profile is not a set of peaks.
+        std::erase_if(candidates_, [](const auto &candidate) { return candidate.contrast <= 0; });
+        if (candidates_.empty())
+            return result;
+        auto chosen = selection_ == "last" ? candidates_.end() - 1
+                      : selection_ == "strongest"
+                          ? std::max_element(candidates_.begin(), candidates_.end(),
+                                             [](const auto &a, const auto &b) { return a.contrast < b.contrast; })
+                          : candidates_.begin();
+        result.found = true;
+        result.point = center + normal * chosen->offset;
+        result.gradient = chosen->contrast;
+        return result;
+    }
+};
 CaliperEdgeSample sample_caliper_edge(const Image &image, const cv::Mat &gray, cv::Point2d center,
                                       cv::Point2d normal, const Json &p) {
-    CaliperEdgeSample result;
-    auto projection = edge_projection(image, gray, center, normal, p);
-    result.samplingAvailable = std::any_of(projection.gradients.begin(), projection.gradients.end(),
-                                           [](double value) { return std::isfinite(value); });
-    auto candidates = projection_edges(projection, p, p.at("polarity"));
-    // A zero threshold still requires a real edge; a flat profile is not a set of peaks.
-    std::erase_if(candidates, [](const auto &candidate) { return candidate.contrast <= 0; });
-    if (candidates.empty())
-        return result;
-    auto selection = p.at("edgeSelection").get<std::string>();
-    auto chosen = selection == "last" ? candidates.end() - 1
-                  : selection == "strongest"
-                      ? std::max_element(candidates.begin(), candidates.end(),
-                                         [](const auto &a, const auto &b) { return a.contrast < b.contrast; })
-                      : candidates.begin();
-    result.found = true;
-    result.point = center + normal * chosen->offset;
-    result.gradient = chosen->contrast;
-    return result;
+    CaliperSampler sampler(p);
+    return sampler.sample_edge(image, gray, center, normal);
 }
-static bool edge_point(const Image &image, const cv::Mat &gray, cv::Point2d center, cv::Point2d normal,
-                       const Json &p, cv::Point2d &edge, bool &samplingAvailable) {
-    auto result = sample_caliper_edge(image, gray, center, normal, p);
+std::vector<CaliperEdgeSample> sample_caliper_edges(const Image &image, const cv::Mat &gray,
+                                                  std::span<const CaliperSamplingStation> stations,
+                                                  const Json &parameters) {
+    CaliperSampler sampler(parameters);
+    std::vector<CaliperEdgeSample> samples;
+    samples.reserve(stations.size());
+    for (const auto &station : stations)
+        samples.push_back(sampler.sample_edge(image, gray, station.center, station.normal));
+    return samples;
+}
+static bool edge_point(CaliperSampler &sampler, const Image &image, const cv::Mat &gray,
+                       cv::Point2d center, cv::Point2d normal, cv::Point2d &edge,
+                       bool &samplingAvailable) {
+    auto result = sampler.sample_edge(image, gray, center, normal);
     edge = result.point;
     samplingAvailable = result.samplingAvailable;
     return result.found;
@@ -469,6 +549,7 @@ void validate_circle_caliper(const Json &p) {
 }
 Features find_circle_caliper(const Image &image, const Json &p) {
     auto gray = gray_pixels(image);
+    CaliperSampler sampler(p);
     Features out;
     std::vector<cv::Point2d> points;
     bool boundary = p.at("caliperPlacement") == "roiBoundary";
@@ -494,7 +575,7 @@ Features find_circle_caliper(const Image &image, const Json &p) {
         if (boundary)
             guides.push_back(guide_diagnostic(image, station, normal, p));
         bool samplingAvailable = false;
-        if (edge_point(image, gray, station, normal, p, edge, samplingAvailable))
+        if (edge_point(sampler, image, gray, station, normal, edge, samplingAvailable))
             points.push_back(edge + cv::Point2d(image.x, image.y));
         validSampling += samplingAvailable;
     }
@@ -606,6 +687,7 @@ void validate_line_caliper(const Json &p) {
 }
 Features find_line_caliper(const Image &image, const Json &p) {
     auto gray = gray_pixels(image);
+    CaliperSampler sampler(p);
     Features out;
     std::vector<cv::Point2d> points;
     bool boundary = p.at("caliperPlacement") == "roiBoundary",
@@ -645,7 +727,7 @@ Features find_line_caliper(const Image &image, const Json &p) {
         if (boundary || strip)
             guides.push_back(guide_diagnostic(image, station, sampleNormal, p));
         bool samplingAvailable = false;
-        if (edge_point(image, gray, station, sampleNormal, p, edge, samplingAvailable))
+        if (edge_point(sampler, image, gray, station, sampleNormal, edge, samplingAvailable))
             points.push_back(edge + cv::Point2d(image.x, image.y));
         validSampling += samplingAvailable;
     }

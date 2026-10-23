@@ -1,7 +1,9 @@
 #include "image_pipeline.h"
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <opencv2/imgproc.hpp>
+#include <string_view>
 #include <unordered_map>
 
 namespace jp {
@@ -18,6 +20,8 @@ struct ImagePipelineStage {
     uint64_t sequence = 0;
     std::map<std::string, Value> values;
     Value overlay = Json::array();
+    std::vector<std::string> overlayGeometryKeys;
+    std::map<std::string, const Value *> aliases;
     size_t bytes = 0;
 };
 } // namespace
@@ -27,6 +31,7 @@ struct ImagePipelineContext {
     std::string coordinatePlane;
     std::vector<std::shared_ptr<const ImagePipelineStage>> stages;
     std::map<std::string, const Value *> latest;
+    std::vector<const Json *> overlayItems;
     size_t bytes = 0, tableBytes = 0;
 };
 
@@ -46,6 +51,46 @@ size_t json_bytes(const Json &value) {
             bytes += json_bytes(item);
     }
     return bytes;
+}
+
+bool same_context_json_representation(const Json &first, const Json &second, bool imageMetadata = false) {
+    // JSON equality alone treats 1 and 1.0 (and signed zero) as equal. Aliasing must also
+    // preserve their serialized representation, not merely their numeric interpretation.
+    if (first.type() != second.type())
+        return false;
+    if (first.is_array()) {
+        if (first.size() != second.size())
+            return false;
+        for (size_t index = 0; index < first.size(); ++index)
+            if (!same_context_json_representation(first[index], second[index]))
+                return false;
+        return true;
+    }
+    if (first.is_object()) {
+        auto left = first.begin(), right = second.begin();
+        for (;;) {
+            // Compare the same view retained by strip_image_contexts, without first copying
+            // a candidate packet just to remove its potentially large upstream context.
+            if (imageMetadata) {
+                while (left != first.end() && (left.key() == "pipeline" || left.key() == "context"))
+                    ++left;
+                while (right != second.end() && (right.key() == "pipeline" || right.key() == "context"))
+                    ++right;
+            }
+            if (left == first.end() || right == second.end())
+                return left == first.end() && right == second.end();
+            if (left.key() != right.key() ||
+                !same_context_json_representation(left.value(), right.value(), left.key() == "image"))
+                return false;
+            ++left;
+            ++right;
+        }
+    }
+    if (first.is_number_float()) {
+        double left = first.get<double>(), right = second.get<double>();
+        return left == right && (left != 0 || std::signbit(left) == std::signbit(right));
+    }
+    return first == second;
 }
 
 size_t value_bytes(const Value &value) {
@@ -93,11 +138,13 @@ void strip_image_contexts(Json &value) {
                 it.value().erase("pipeline");
                 it.value().erase("context");
             }
-            strip_image_contexts(it.value());
+            if (it.value().is_structured())
+                strip_image_contexts(it.value());
         }
     } else if (value.is_array())
         for (auto &item : value)
-            strip_image_contexts(item);
+            if (item.is_structured())
+                strip_image_contexts(item);
 }
 
 Value context_value(const Value &value) {
@@ -346,7 +393,8 @@ void complete_image_pipeline(const std::string &nodeId, const Component &compone
     std::function<void(Json &)> stamp = [&](Json &packet) {
         if (packet.is_array()) {
             for (auto &child : packet)
-                stamp(child);
+                if (child.is_structured())
+                    stamp(child);
             return;
         }
         if (!packet.is_object())
@@ -359,7 +407,7 @@ void complete_image_pipeline(const std::string &nodeId, const Component &compone
                 packet["coordinatePlane"] = projection.coordinatePlane;
         }
         for (auto it = packet.begin(); it != packet.end(); ++it)
-            if (it.key() != "coordinateMapping" && it.key() != "pipeline")
+            if (it.key() != "coordinateMapping" && it.key() != "pipeline" && it.value().is_structured())
                 stamp(it.value());
     };
     for (const auto &output : descriptor.at("outputs")) {
@@ -374,12 +422,12 @@ void complete_image_pipeline(const std::string &nodeId, const Component &compone
             output.at("type") == "PointSet") {
             if (auto packet = std::get_if<Json>(&ports.at(port)); packet && packet->is_object()) {
                 (*packet)["coordinateSpace"] = projection.coordinateSpace;
-                stamp(*packet);
+                // These direct metadata objects always receive a plane, even if the producer
+                // omitted coordinateSpace. Initialize them before the single recursive pass.
                 for (const auto *key : {"measurement", "image", "fixture", "pose"})
-                    if (packet->contains(key) && (*packet)[key].is_object()) {
+                    if (packet->contains(key) && (*packet)[key].is_object())
                         (*packet)[key]["coordinateSpace"] = projection.coordinateSpace;
-                        stamp((*packet)[key]);
-                    }
+                stamp(*packet);
             }
         }
     }
@@ -405,14 +453,40 @@ void complete_image_pipeline(const std::string &nodeId, const Component &compone
     stage->componentType = type;
     stage->sequence = nextStageSequence.fetch_add(1);
     stage->overlay = std::move(ownOverlay);
+    const auto &stageOverlay = std::get<Json>(stage->overlay);
+    stage->overlayGeometryKeys.reserve(stageOverlay.size());
+    for (const auto &item : stageOverlay) {
+        Json geometry = item;
+        if (geometry.is_object()) {
+            geometry.erase("color");
+            geometry.erase("lineWidth");
+        }
+        stage->overlayGeometryKeys.push_back(geometry.dump());
+    }
     for (const auto &output : descriptor.at("outputs")) {
         const auto outputType = output.at("type").get<std::string>();
         const auto port = output.at("id").get<std::string>();
         if (outputType == "Image" || outputType == "Mask" || outputType == "Overlay")
             continue;
         auto value = ports.find(port);
-        if (value != ports.end() && !stage->values.contains(outputType))
-            stage->values.emplace(outputType, context_value(value->second));
+        if (value != ports.end() && !stage->values.contains(outputType) &&
+            !stage->aliases.contains(outputType)) {
+            // Some components publish the identical immutable packet through Result and PointSet.
+            // Preserve both type names without retaining a second complete point/overlay tree.
+            const auto *packet = std::get_if<Json>(&value->second);
+            const Value *alias = nullptr;
+            if (packet)
+                for (const auto &[existingType, existing] : stage->values)
+                    if (const auto *existingPacket = std::get_if<Json>(&existing);
+                        existingPacket && same_context_json_representation(*existingPacket, *packet)) {
+                        alias = &existing;
+                        break;
+                    }
+            if (alias)
+                stage->aliases.emplace(outputType, alias);
+            else
+                stage->values.emplace(outputType, context_value(value->second));
+        }
     }
     if (!stage->values.contains("Features") && inputs.contains("first") && inputs.contains("second")) {
         auto selected = selected_measurement_features(inputs, parameters);
@@ -422,6 +496,11 @@ void complete_image_pipeline(const std::string &nodeId, const Component &compone
     }
     stage->bytes =
         sizeof(ImagePipelineStage) + nodeId.capacity() + type.capacity() + value_bytes(stage->overlay);
+    stage->bytes += stage->overlayGeometryKeys.capacity() * sizeof(std::string);
+    for (const auto &key : stage->overlayGeometryKeys)
+        stage->bytes += key.capacity();
+    for (const auto &[aliasType, value] : stage->aliases)
+        stage->bytes += 4 * sizeof(void *) + aliasType.capacity();
     for (const auto &[valueType, value] : stage->values)
         stage->bytes += 4 * sizeof(void *) + valueType.capacity() + value_bytes(value);
     require(stage->bytes <= MaxPipelineBytes, JPV_RESOURCE_LIMIT,
@@ -439,16 +518,29 @@ void complete_image_pipeline(const std::string &nodeId, const Component &compone
     std::sort(context->stages.begin(), context->stages.end(),
               [](const auto &a, const auto &b) { return a->sequence < b->sequence; });
     size_t overlayItems = 0;
+    std::unordered_map<std::string_view, size_t> overlayPositions;
     for (const auto &record : context->stages) {
         context->bytes += record->bytes;
         overlayItems += std::get<Json>(record->overlay).size();
         for (const auto &[valueType, value] : record->values)
             context->latest[valueType] = &value;
+        for (const auto &[valueType, value] : record->aliases)
+            context->latest[valueType] = value;
         context->latest["Overlay"] = &record->overlay;
+        const auto &items = std::get<Json>(record->overlay);
+        for (size_t index = 0; index < items.size(); ++index) {
+            auto [position, inserted] = overlayPositions.emplace(record->overlayGeometryKeys[index],
+                                                                 context->overlayItems.size());
+            if (inserted)
+                context->overlayItems.push_back(&items[index]);
+            else
+                context->overlayItems[position->second] = &items[index];
+        }
     }
     context->tableBytes = sizeof(ImagePipelineContext) +
                           context->stages.capacity() * sizeof(std::shared_ptr<const ImagePipelineStage>);
     context->tableBytes += context->coordinatePlane.capacity();
+    context->tableBytes += context->overlayItems.capacity() * sizeof(const Json *);
     for (const auto &[valueType, value] : context->latest)
         context->tableBytes += 4 * sizeof(void *) + valueType.capacity();
     context->bytes += context->tableBytes;
@@ -498,22 +590,11 @@ Json image_context_overlay(const Image &image) {
     Json overlay = Json::array();
     if (!image.pipelineContext || !image.available)
         return overlay;
-    std::unordered_map<std::string, size_t> positions;
-    for (const auto &stage : image.pipelineContext->stages)
-        for (const auto &item : std::get<Json>(stage->overlay)) {
-            // A marker module can restyle an upstream fit. Keep one geometric annotation,
-            // with the last explicit style, rather than drawing both versions on top of it.
-            Json geometry = item;
-            if (geometry.is_object()) {
-                geometry.erase("color");
-                geometry.erase("lineWidth");
-            }
-            auto [position, inserted] = positions.emplace(geometry.dump(), overlay.size());
-            if (inserted)
-                overlay.push_back(item);
-            else
-                overlay[position->second] = item;
-        }
+    // The immutable context resolves geometry and last-style-wins once when it is completed.
+    // Serialization only copies the final ordered items, without repeating keys/deduplication.
+    overlay.get_ref<Json::array_t &>().reserve(image.pipelineContext->overlayItems.size());
+    for (const auto *item : image.pipelineContext->overlayItems)
+        overlay.push_back(*item);
     return overlay;
 }
 

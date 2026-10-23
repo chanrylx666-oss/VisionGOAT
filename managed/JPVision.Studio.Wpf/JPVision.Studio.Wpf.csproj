@@ -11,6 +11,5 @@
     <Resource Include="../../assets/jpVision.png" Link="Assets/jpVision.png"/><Resource Include="../../assets/jpVision.ico" Link="Assets/jpVision.ico"/>
     <Content Include="../../samples/recipes/**/*" Link="samples/recipes/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest"/>
     <Content Include="../../samples/images/*" Link="samples/images/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest"/>
-    <None Include="../../artifacts/native/$(Configuration)/JPVision.Runtime.pdb" Link="JPVision.Runtime.pdb" CopyToOutputDirectory="PreserveNewest" Condition="Exists('../../artifacts/native/$(Configuration)/JPVision.Runtime.pdb')"/>
   </ItemGroup>
 </Project>

@@ -1,5 +1,6 @@
 using Microsoft.Win32.SafeHandles;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 
 namespace JPVision.Sdk;
 
@@ -120,5 +121,26 @@ internal static partial class Native
             return Marshal.PtrToStringUTF8(text) ?? throw new InvalidDataException("Missing native response.");
         }
         finally { if (text != IntPtr.Zero) StringFree(text); }
+    }
+    internal static JsonElement TakeJson(int status, IntPtr text)
+    {
+        try
+        {
+            Check(status);
+            return ReadJson(text);
+        }
+        finally { if (text != IntPtr.Zero) StringFree(text); }
+    }
+    private static unsafe JsonElement ReadJson(IntPtr text)
+    {
+        if (text == IntPtr.Zero)
+            throw new InvalidDataException("Missing native response.");
+        var utf8 = MemoryMarshal.CreateReadOnlySpanFromNullTerminated((byte*)text);
+        var reader = new Utf8JsonReader(utf8);
+        // ParseValue copies the UTF-8 data into an owning element before the native buffer is freed.
+        var value = JsonElement.ParseValue(ref reader);
+        if (reader.Read())
+            throw new JsonException("Unexpected trailing native JSON data.");
+        return value;
     }
 }

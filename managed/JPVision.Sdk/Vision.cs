@@ -209,7 +209,7 @@ public sealed class VisionSession : IDisposable, IAsyncDisposable
                 var resultHandle = new ResultHandle(pointer);
                 try
                 {
-                    string json = Native.TakeString(Native.ResultJson(resultHandle, out var text), text);
+                    var json = Native.TakeJson(Native.ResultJson(resultHandle, out var text), text);
                     var result = new InspectionResult(resultHandle, json);
                     if (result.Status == ExecutionStatus.Cancelled)
                         throw new OperationCanceledException("Native run safely cancelled.", token);
@@ -281,10 +281,16 @@ public sealed partial class InspectionResult : IDisposable
     public string RunId => Data.GetProperty("runId").GetString()!;
     public JsonElement Outputs => Data.GetProperty("outputs");
     internal InspectionResult(ResultHandle handle, string json)
+        : this(handle, ParseOwnedJson(json)) { }
+    private static JsonElement ParseOwnedJson(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement.Clone();
+    }
+    internal InspectionResult(ResultHandle handle, JsonElement ownedData)
     {
         this.handle = handle;
-        using var document = JsonDocument.Parse(json);
-        Data = document.RootElement.Clone();
+        Data = ownedData;
         Status = Enum.Parse<ExecutionStatus>(Data.GetProperty("executionStatus").GetString()!);
         Decision = Enum.Parse<InspectionDecision>(Data.GetProperty("decision").GetString()!);
     }

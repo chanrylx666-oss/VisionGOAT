@@ -1,0 +1,20 @@
+<Project>
+  <PropertyGroup>
+    <_JpvBuildPropsImported>true</_JpvBuildPropsImported>
+    <Configurations>Debug;Release;Profile</Configurations>
+    <!-- The .NET SDK assigns its Debug default after importing this file. -->
+    <_JpvEffectiveConfiguration>$(Configuration)</_JpvEffectiveConfiguration>
+    <_JpvEffectiveConfiguration Condition="'$(_JpvEffectiveConfiguration)' == ''">$(DefaultProjectConfiguration)</_JpvEffectiveConfiguration>
+    <_JpvEffectiveConfiguration Condition="'$(_JpvEffectiveConfiguration)' == ''">Debug</_JpvEffectiveConfiguration>
+    <!-- Keep native profiling explicit and separate from the ordinary Debug output. -->
+    <JpvNativeConfiguration Condition="'$(JpvNativeConfiguration)' == '' and '$(_JpvEffectiveConfiguration)' == 'Profile'">RelWithDebInfo</JpvNativeConfiguration>
+    <JpvNativeConfiguration Condition="'$(JpvNativeConfiguration)' == ''">$(_JpvEffectiveConfiguration)</JpvNativeConfiguration>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(_JpvEffectiveConfiguration)' == 'Profile' and '$(MSBuildProjectExtension)' == '.csproj'">
+    <!-- Profile changes the native implementation, while C# keeps its Debug behavior. -->
+    <Optimize>false</Optimize>
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>portable</DebugType>
+    <DefineConstants>$(DefineConstants);DEBUG;TRACE</DefineConstants>
+  </PropertyGroup>
+</Project>

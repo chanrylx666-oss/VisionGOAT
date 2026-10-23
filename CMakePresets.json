@@ -27,12 +27,14 @@
   "buildPresets": [
     { "name": "runtime-release", "configurePreset": "runtime", "configuration": "Release" },
     { "name": "runtime-debug", "configurePreset": "runtime", "configuration": "Debug" },
+    { "name": "runtime-relwithdebinfo", "configurePreset": "runtime", "configuration": "RelWithDebInfo" },
     { "name": "studio-release", "configurePreset": "studio-release" },
     { "name": "studio-debug", "configurePreset": "studio-debug" }
   ],
   "testPresets": [
     { "name": "runtime-release", "configurePreset": "runtime", "configuration": "Release", "output": { "outputOnFailure": true } },
-    { "name": "runtime-debug", "configurePreset": "runtime", "configuration": "Debug", "output": { "outputOnFailure": true } }
+    { "name": "runtime-debug", "configurePreset": "runtime", "configuration": "Debug", "output": { "outputOnFailure": true } },
+    { "name": "runtime-relwithdebinfo", "configurePreset": "runtime", "configuration": "RelWithDebInfo", "output": { "outputOnFailure": true } }
   ]
 }
 

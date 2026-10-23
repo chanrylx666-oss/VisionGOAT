@@ -157,6 +157,10 @@ Value find_edge_points(const Value *input, const Json &parameters, const Image &
     double extent =
         std::ceil(roi.at("height").get<double>() / 2) + parameters.at("projectionWidth").get<int>() / 2.0 + 2;
     auto &points = result["points"];
+    std::vector<CaliperSamplingStation> samplingStations;
+    std::vector<int> stationIndices;
+    samplingStations.reserve(count);
+    stationIndices.reserve(count);
     for (int index = 0; index < count; ++index) {
         double position = index * spacing;
         auto station = center + tangent * (position - width / 2);
@@ -165,7 +169,14 @@ Value find_edge_points(const Value *input, const Json &parameters, const Image &
         if (station.x < -extent || station.y < -extent || station.x > gray.cols + extent ||
             station.y > gray.rows + extent)
             continue;
-        auto edge = sample_caliper_edge(source, gray, station, normal, sampling);
+        samplingStations.push_back({station, normal});
+        stationIndices.push_back(index);
+    }
+    auto edges = sample_caliper_edges(source, gray, samplingStations, sampling);
+    points.get_ref<Json::array_t &>().reserve(edges.size());
+    for (size_t slot = 0; slot < edges.size(); ++slot) {
+        const int index = stationIndices[slot];
+        const auto &edge = edges[slot];
         samplingAvailable += edge.samplingAvailable;
         stationSamplingAvailable[index] = edge.samplingAvailable;
         if (!edge.found)
@@ -175,7 +186,7 @@ Value find_edge_points(const Value *input, const Json &parameters, const Image &
                           {"x", edge.point.x + source.x},
                           {"y", edge.point.y + source.y},
                           {"gradient", edge.gradient},
-                          {"pathPosition", position}});
+                          {"pathPosition", index * spacing}});
     }
     int required = std::max(1, int(std::ceil(count * parameters.at("minimumCoverage").get<double>())));
     result["stationCount"] = count;
@@ -311,13 +322,21 @@ Value point_line_distances(const InputValues &inputs, const Json &parameters, co
     const auto &points = pointSet->at("points");
     require(points.size() <= MaximumEdgePoints, JPV_RESOURCE_LIMIT,
             "Point-line measurement supports up to 32769 points.");
+    struct PointDistance {
+        const Json *point;
+        double x, y, projectionX, projectionY, distance, signedDistance;
+        bool interpolated, adjusted;
+    };
+    std::vector<PointDistance> measured;
+    measured.reserve(points.size());
+    const bool rawMeasured = parameters.at("pointSource") == "measuredOnly";
+    int measuredCount = 0, interpolatedCount = 0;
     double sum = 0, sumSquares = 0;
     size_t minimumIndex = 0, maximumIndex = 0;
     for (const auto &point : points) {
         std::string origin = point.value("origin", "measured");
         require(origin == "measured" || origin == "interpolated", JPV_INVALID_ARGUMENT,
                 "Point set contains an unknown point origin.");
-        bool rawMeasured = parameters.at("pointSource") == "measuredOnly";
         if (rawMeasured && origin == "interpolated")
             continue;
         double x = rawMeasured ? point.value("rawX", point.at("x").get<double>()) : point.at("x").get<double>(),
@@ -327,41 +346,48 @@ Value point_line_distances(const InputValues &inputs, const Json &parameters, co
                projectionY = y - signedDistance * b;
         require(std::isfinite(distance) && std::isfinite(projectionX) && std::isfinite(projectionY),
                 JPV_INVALID_ARGUMENT, "Point-line measurement produced a nonfinite result.");
-        distances.push_back({{"index", distances.size()},
-                             {"pointIndex", point.at("index")},
-                             {"stationIndex", point.at("stationIndex")},
-                             {"origin", origin},
-                             {"adjusted", !rawMeasured && point.value("adjusted", false)},
-                             {"coordinateSource", rawMeasured ? "rawMeasured" : "processed"},
-                             {"x", x},
-                             {"y", y},
-                             {"projectionX", projectionX},
-                             {"projectionY", projectionY},
-                             {"distance", distance},
-                             {"signedDistance", signedDistance}});
-        const char *counter = origin == "interpolated" ? "interpolatedCount" : "measuredCount";
-        result[counter] = result.at(counter).get<int>() + 1;
-        auto current = distances.size() - 1;
-        if (distance < distances[minimumIndex].at("distance").get<double>())
+        const bool interpolated = origin == "interpolated";
+        measured.push_back({&point, x, y, projectionX, projectionY, distance, signedDistance,
+                            interpolated, !rawMeasured && point.value("adjusted", false)});
+        if (interpolated) ++interpolatedCount; else ++measuredCount;
+        auto current = measured.size() - 1;
+        if (distance < measured[minimumIndex].distance)
             minimumIndex = current;
-        if (distance > distances[maximumIndex].at("distance").get<double>())
+        if (distance > measured[maximumIndex].distance)
             maximumIndex = current;
         sum += distance;
         sumSquares += distance * distance;
     }
-    if (distances.empty())
+    if (measured.empty())
         return unavailable("NoMeasuredEdgePoints");
-    double mean = sum / distances.size(), variance = 0;
-    for (const auto &distance : distances) {
-        double delta = distance.at("distance").get<double>() - mean;
+    double mean = sum / measured.size(), variance = 0;
+    for (const auto &distance : measured) {
+        double delta = distance.distance - mean;
         variance += delta * delta;
     }
-    double minimum = distances[minimumIndex].at("distance"), maximum = distances[maximumIndex].at("distance");
+    // Compute with native numbers first; materialize the public packet once after the statistics.
+    // Point ordering, source coordinates, extrema tie-breaking and every per-point result are retained.
+    distances.get_ref<Json::array_t &>().reserve(measured.size());
+    for (size_t index = 0; index < measured.size(); ++index) {
+        const auto &distance = measured[index];
+        distances.push_back({{"index", index},
+                             {"pointIndex", distance.point->at("index")},
+                             {"stationIndex", distance.point->at("stationIndex")},
+                             {"origin", distance.interpolated ? "interpolated" : "measured"},
+                             {"adjusted", distance.adjusted},
+                             {"coordinateSource", rawMeasured ? "rawMeasured" : "processed"},
+                             {"x", distance.x}, {"y", distance.y},
+                             {"projectionX", distance.projectionX}, {"projectionY", distance.projectionY},
+                             {"distance", distance.distance}, {"signedDistance", distance.signedDistance}});
+    }
+    result["measuredCount"] = measuredCount;
+    result["interpolatedCount"] = interpolatedCount;
+    double minimum = measured[minimumIndex].distance, maximum = measured[maximumIndex].distance;
     result["minimum"] = minimum;
     result["maximum"] = maximum;
     result["mean"] = mean;
-    result["rms"] = std::sqrt(sumSquares / distances.size());
-    result["standardDeviation"] = std::sqrt(variance / distances.size());
+    result["rms"] = std::sqrt(sumSquares / measured.size());
+    result["standardDeviation"] = std::sqrt(variance / measured.size());
     result["range"] = maximum - minimum;
     result["minimumPoint"] = distances[minimumIndex];
     result["maximumPoint"] = distances[maximumIndex];
@@ -373,12 +399,12 @@ Value point_line_distances(const InputValues &inputs, const Json &parameters, co
         auto &overlay = result["overlay"];
         overlay.push_back(segment(first, second, parameters));
         int every = parameters.at("displayEveryNth");
-        for (size_t index = 0; index < distances.size(); ++index) {
+        for (size_t index = 0; index < measured.size(); ++index) {
             if (index % every != 0 && index != minimumIndex && index != maximumIndex)
                 continue;
-            const auto &distance = distances[index];
-            cv::Point2d point(distance.at("x"), distance.at("y")),
-                projection(distance.at("projectionX"), distance.at("projectionY"));
+            const auto &distance = measured[index];
+            cv::Point2d point(distance.x, distance.y),
+                projection(distance.projectionX, distance.projectionY);
             overlay.push_back(segment(point, projection, parameters));
             overlay.push_back(point_marker(point, parameters));
             overlay.push_back(point_marker(projection, parameters));

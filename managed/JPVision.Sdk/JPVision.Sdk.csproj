@@ -6,16 +6,24 @@
     <Description>JP-Vision licensed native machine vision runtime SDK for Windows x64.</Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <GenerateDocumentationFile>true</GenerateDocumentationFile><NoWarn>$(NoWarn);1591</NoWarn>
-    <_OpenCvSuffix Condition="'$(Configuration)' == 'Debug'">d</_OpenCvSuffix>
+    <_OpenCvSuffix Condition="'$(JpvNativeConfiguration)' == 'Debug'">d</_OpenCvSuffix>
   </PropertyGroup>
   <ItemGroup>
     <None Include="../../docs/sdk-integration.md" Pack="true" PackagePath="README.md" />
     <None Include="../../THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="notices/" />
     <None Include="../../third_party/licenses/OpenCV-LICENSE.txt" Pack="true" PackagePath="notices/" />
-    <None Include="../../artifacts/native/$(Configuration)/JPVision.Runtime.dll" Link="JPVision.Runtime.dll" CopyToOutputDirectory="PreserveNewest" Pack="true" PackagePath="runtimes/win-x64/native/" />
-    <None Include="../../artifacts/native/$(Configuration)/opencv_world500$(_OpenCvSuffix).dll" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Pack="true" PackagePath="runtimes/win-x64/native/" />
-    <None Include="../../artifacts/native/$(Configuration)/vcruntime*.dll;../../artifacts/native/$(Configuration)/msvcp*.dll;../../artifacts/native/$(Configuration)/concrt*.dll;../../artifacts/native/$(Configuration)/vccorlib*.dll" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Pack="true" PackagePath="runtimes/win-x64/native/" />
+    <None Include="../../artifacts/native/$(JpvNativeConfiguration)/JPVision.Runtime.dll" Link="JPVision.Runtime.dll" CopyToOutputDirectory="PreserveNewest" Pack="true" PackagePath="runtimes/win-x64/native/" />
+    <None Include="../../artifacts/native/$(JpvNativeConfiguration)/opencv_world500$(_OpenCvSuffix).dll" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Pack="true" PackagePath="runtimes/win-x64/native/" />
+    <None Include="../../artifacts/native/$(JpvNativeConfiguration)/vcruntime*.dll;../../artifacts/native/$(JpvNativeConfiguration)/msvcp*.dll;../../artifacts/native/$(JpvNativeConfiguration)/concrt*.dll;../../artifacts/native/$(JpvNativeConfiguration)/vccorlib*.dll" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Pack="true" PackagePath="runtimes/win-x64/native/" />
   </ItemGroup>
+  <!-- Native symbols may be produced after project evaluation on the first solution build. -->
+  <Target Name="JpvCollectRuntimeSymbols" BeforeTargets="GetCopyToOutputDirectoryItems">
+    <ItemGroup>
+      <ContentWithTargetPath Include="../../artifacts/native/$(JpvNativeConfiguration)/JPVision.Runtime.pdb"
+          Condition="Exists('../../artifacts/native/$(JpvNativeConfiguration)/JPVision.Runtime.pdb')"
+          TargetPath="JPVision.Runtime.pdb" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
   <Target Name="CollectOptionalOnnxRuntime" BeforeTargets="GetCopyToOutputDirectoryItems">
     <ItemGroup>
       <ContentWithTargetPath Include="../../artifacts/dependencies/onnxruntime/win-x64/onnxruntime.dll"

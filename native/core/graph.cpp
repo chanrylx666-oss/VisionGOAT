@@ -477,6 +477,29 @@ static Json serialize_value(const Value &value) {
         },
         value);
 }
+// Ports are immutable after complete_image_pipeline. Reuse their conversion and exact encoded
+// byte count while copying into the legacy result locations; public packet shapes stay unchanged.
+struct SerializedPort {
+    const Json *existing = nullptr;
+    std::optional<Json> generated;
+    std::optional<size_t> encodedBytes;
+    explicit SerializedPort(const Value &value) {
+        existing = std::get_if<Json>(&value);
+        if (!existing)
+            generated = serialize_value(value);
+    }
+    const Json &json() const {
+        return existing ? *existing : *generated;
+    }
+    Json take() {
+        return existing ? *existing : std::move(*generated);
+    }
+    size_t bytes() {
+        if (!encodedBytes)
+            encodedBytes = json().dump().size();
+        return *encodedBytes;
+    }
+};
 static bool unavailable_data(const Value &value) {
     if (auto contours = std::get_if<Contours>(&value))
         return !contours->dataAvailable;
@@ -555,6 +578,7 @@ std::shared_ptr<Result> Run::execute() {
                     {"nodeOutputs", Json::object()},
                     {"error", nullptr}};
     std::map<std::string, PortValues> values;
+    std::map<std::pair<std::string, std::string>, size_t> serializedPortBytes;
     auto uses = plan.uses;
     size_t debugBytes = 0;
     size_t measurementBytes = 0;
@@ -630,10 +654,12 @@ std::shared_ptr<Result> Run::execute() {
                 }
             bool skipped = p.contains("_unavailable");
             const Value *input = inputs.empty() ? nullptr : inputs.begin()->second;
+            auto executeStart = std::chrono::steady_clock::now();
             Value computed = skipped && !entry.descriptor.value("handlesUnavailableParameters", false)
                                  ? skipped_value(entry, inputs, *frame)
                              : entry.executeInputs ? entry.executeInputs(inputs, p, *frame)
                                                    : entry.execute(input, p, *frame);
+            auto executeEnd = std::chrono::steady_clock::now();
             skipped = skipped || unavailable_data(computed);
             check();
             PortValues ports = entry.expandInputs ? entry.expandInputs(computed, p, inputs)
@@ -644,8 +670,12 @@ std::shared_ptr<Result> Run::execute() {
             ports.emplace(primary, std::move(computed));
             complete_image_pipeline(id, entry, inputs, ports, p, *frame);
             auto &output = ports.at(primary);
+            std::map<std::string, SerializedPort> serializedPorts;
+            auto serialized = [&](const std::string &name) -> SerializedPort & {
+                return serializedPorts.try_emplace(name, ports.at(name)).first->second;
+            };
             if (entry.descriptor.at("outputs")[0].at("type") == "Result") {
-                debugBytes += std::get<Json>(output).dump().size();
+                debugBytes += serialized(primary).bytes();
                 require(debugBytes <= MaxDebugBytes, JPV_RESOURCE_LIMIT, "Result packet budget exceeded.");
             }
             require(ports.size() == entry.descriptor.at("outputs").size(), JPV_INTERNAL_ERROR,
@@ -659,15 +689,15 @@ std::shared_ptr<Result> Run::execute() {
             if (ports.contains("result")) {
                 // Packets are complex JSON even when Debug is off. Count their generation so an
                 // unpublished packet or a large graph cannot bypass the result memory budget.
-                debugBytes += std::get<Json>(ports.at("result")).dump().size();
+                debugBytes += serialized("result").bytes();
                 require(debugBytes <= MaxDebugBytes, JPV_RESOURCE_LIMIT, "Result packet budget exceeded.");
             }
             if (ports.contains("measurement")) {
-                auto measurement = serialize_value(ports.at("measurement"));
-                measurementBytes += measurement.dump().size();
+                auto &measurement = serialized("measurement");
+                measurementBytes += measurement.bytes();
                 require(measurementBytes <= MaxMeasurementBytes, JPV_RESOURCE_LIMIT,
                         "Measurement result budget exceeded.");
-                result->json["measurements"][id] = std::move(measurement);
+                result->json["measurements"][id] = measurement.json();
             }
             check();
             bool retained = debug || id == previewNode;
@@ -678,8 +708,8 @@ std::shared_ptr<Result> Run::execute() {
                         result->inputImages[id] = *image;
                         break;
                     }
-                auto data = serialize_value(output);
-                debugBytes += data.dump().size();
+                auto &data = serialized(primary);
+                debugBytes += data.bytes();
                 if (auto image = std::get_if<Image>(&output)) {
                     accountImage(*image);
                     result->images[id] = *image;
@@ -702,7 +732,7 @@ std::shared_ptr<Result> Run::execute() {
                     result->json["debugOverlays"][id] = std::move(overlays);
                 }
                 require(debugBytes <= MaxDebugBytes, JPV_RESOURCE_LIMIT, "Debug result budget exceeded.");
-                result->json["debugValues"][id] = std::move(data);
+                result->json["debugValues"][id] = data.json();
             }
             Json nodePorts = Json::object();
             for (const auto &port : entry.descriptor.at("outputs")) {
@@ -711,14 +741,16 @@ std::shared_ptr<Result> Run::execute() {
                 bool small = type == "Int" || type == "Double" || type == "Bool" || type == "String" ||
                              type == "Measurement" || type == "Decision" || type == "Pose";
                 if (small || retained || type == "Image" || type == "Mask") {
-                    auto data = serialize_value(value);
+                    auto &encoded = serialized(name);
+                    serializedPortBytes[{id, name}] = encoded.bytes();
+                    auto data = encoded.take();
                     if (type == "Mask" && retained) {
                         const auto &image = std::get<Image>(value);
                         data["foregroundPixels"] =
                             image.available ? cv::countNonZero(visible_pixels(image)) : 0;
                     }
                     if (retained || type == "Image" || type == "Mask")
-                        debugBytes += data.dump().size();
+                        debugBytes += type == "Mask" && retained ? data.dump().size() : encoded.bytes();
                     nodePorts[name] = std::move(data);
                 }
             }
@@ -726,10 +758,13 @@ std::shared_ptr<Result> Run::execute() {
             result->json["nodeOutputs"][id] = std::move(nodePorts);
             if (uses[id] > 0)
                 values[id] = std::move(ports);
+            auto resultEnd = std::chrono::steady_clock::now();
             result->json["nodes"][id] = {{"status", skipped ? "Skipped" : "Succeeded"},
                                          {"elapsedMs", std::chrono::duration<double, std::milli>(
-                                                           std::chrono::steady_clock::now() - nodeStart)
-                                                           .count()}};
+                                                           resultEnd - nodeStart).count()},
+                                         {"prepareMs", std::chrono::duration<double, std::milli>(executeStart - nodeStart).count()},
+                                         {"executeMs", std::chrono::duration<double, std::milli>(executeEnd - executeStart).count()},
+                                         {"resultMs", std::chrono::duration<double, std::milli>(resultEnd - executeEnd).count()}};
             Json resolvedSnapshot = Json::object();
             for (auto it = p.begin(); it != p.end(); ++it)
                 if (it.key() == "roi" || it.key() == "firstRoi" || it.key() == "secondRoi" ||
@@ -757,19 +792,41 @@ std::shared_ptr<Result> Run::execute() {
                     values.erase(source.first);
         }
         check();
+        struct PublishedValue {
+            const Json *json;
+            size_t bytes;
+        };
+        std::map<std::pair<std::string, std::string>, PublishedValue> publishedValues;
         for (auto it = plan.recipe.at("outputs").begin(); it != plan.recipe.at("outputs").end(); ++it) {
             auto id = it.value().at("node").get<std::string>();
             auto port = it.value().at("port").get<std::string>();
             const auto &value = values.at(id).at(port);
-            auto data = serialize_value(value);
+            const auto key = std::pair{id, port};
+            Json data;
+            size_t bytes = 0;
+            if (auto previous = publishedValues.find(key); previous != publishedValues.end()) {
+                data = *previous->second.json;
+                bytes = previous->second.bytes;
+            } else if (const auto sizes = serializedPortBytes.find(key);
+                       sizes != serializedPortBytes.end()) {
+                data = result->json.at("nodeOutputs").at(id).at(port);
+                // Retained masks add preview-only statistics; public mask metadata never did.
+                if (it.value().at("type") == "Mask")
+                    data.erase("foregroundPixels");
+                bytes = sizes->second;
+            } else {
+                data = serialize_value(value);
+                bytes = data.dump().size();
+            }
             if (it.value().at("type") == "Result" || it.value().at("type") == "Image" ||
                 it.value().at("type") == "Mask") {
                 // Public aliases each retain another packet; include every copy in the same budget.
-                debugBytes += data.dump().size();
+                debugBytes += bytes;
                 require(debugBytes <= MaxDebugBytes, JPV_RESOURCE_LIMIT,
                         "Public result packet budget exceeded.");
             }
             result->json["outputs"][it.key()] = std::move(data);
+            publishedValues.try_emplace(key, PublishedValue{&result->json["outputs"].at(it.key()), bytes});
             if (auto image = std::get_if<Image>(&value)) {
                 accountImage(*image);
                 result->outputImages[it.key()] = *image;
